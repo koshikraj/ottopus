@@ -1,5 +1,6 @@
 import { Lockup, Otto, OttoBadge, POSE_NAMES } from '@/components/brand'
 import { ThemeToggle } from '@/components/theme-toggle'
+import { cn } from '@/lib/cn'
 import {
   AddressChip,
   Badge,
@@ -32,12 +33,49 @@ const TYPE = [
   { face: 'JetBrains Mono', role: 'Addresses, hashes, amounts', sample: '0xd8da…6045', cls: 'font-mono' },
 ]
 
-const STATE_MEANINGS = [
-  { tone: 'plan' as const, label: 'Blue', meaning: 'Planning' },
-  { tone: 'warn' as const, label: 'Amber', meaning: 'Caution' },
-  { tone: 'ok' as const, label: 'Green', meaning: 'Confirmed' },
-  { tone: 'block' as const, label: 'Red', meaning: 'Blocked' },
+const BRAND = ['coral', 'coral-hover', 'coral-soft', 'coral-text', 'cream', 'navy']
+const SURFACES = ['page', 'surface', 'card', 'surface-2', 'surface-3']
+const TEXT = ['text', 'text-2', 'text-3', 'text-4']
+const LINES = ['border', 'border-strong']
+const DEPTH = ['card', 'water-1', 'water-2', 'water-3']
+
+/** Each state owns four tokens: a tint, a border, a text colour and a solid. */
+const STATES = [
+  { name: 'plan', means: 'Planning' },
+  { name: 'warn', means: 'Caution' },
+  { name: 'ok', means: 'Confirmed' },
+  { name: 'block', means: 'Blocked' },
 ]
+
+function Swatch({ token, wide = false }: { token: string; wide?: boolean }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <div
+        className={cn(
+          'h-11 rounded-[var(--ot-radius-sm)] border border-[var(--ot-border)]',
+          wide ? 'w-32' : 'w-20',
+        )}
+        style={{ background: `var(--ot-${token})` }}
+      />
+      <code className="font-mono text-[10px] text-[var(--ot-text-3)]">--ot-{token}</code>
+    </div>
+  )
+}
+
+function SwatchRow({ label, tokens }: { label: string; tokens: string[] }) {
+  return (
+    <div className="flex flex-col gap-2">
+      <span className="text-[11px] tracking-[0.14em] text-[var(--ot-text-3)] uppercase">
+        {label}
+      </span>
+      <div className="flex flex-wrap gap-2">
+        {tokens.map((t) => (
+          <Swatch key={t} token={t} />
+        ))}
+      </div>
+    </div>
+  )
+}
 
 const RULES = [
   'Blue is planning, amber caution, green confirmed, red blocked. Everywhere. Always.',
@@ -114,14 +152,56 @@ export default function Styleguide() {
         </div>
       </Section>
 
-      <Section title="State colours mean one thing">
-        <div className="flex flex-col gap-2">
-          {STATE_MEANINGS.map((s) => (
-            <div key={s.tone} className="flex items-center gap-3">
-              <Badge tone={s.tone}>{s.label}</Badge>
-              <span className="text-[14px] text-[var(--ot-text-2)]">{s.meaning}</span>
+      <Section title="Colour">
+        <div className="flex flex-col gap-5">
+          <SwatchRow label="Brand" tokens={BRAND} />
+          <SwatchRow label="Surfaces" tokens={SURFACES} />
+          <SwatchRow label="Text" tokens={TEXT} />
+          <SwatchRow label="Lines" tokens={LINES} />
+
+          <div className="flex flex-col gap-2">
+            <span className="text-[11px] tracking-[0.14em] text-[var(--ot-text-3)] uppercase">
+              State
+            </span>
+            <div className="flex flex-col gap-3">
+              {STATES.map((st) => (
+                <div key={st.name} className="flex flex-wrap items-end gap-2">
+                  {[`${st.name}-bg`, `${st.name}-border`, `${st.name}-text`, st.name].map((t) => (
+                    <Swatch key={t} token={t} />
+                  ))}
+                  <span className="pb-4 text-[13px] text-[var(--ot-text-2)]">{st.means}</span>
+                </div>
+              ))}
             </div>
-          ))}
+            <div className="flex flex-wrap gap-2 pt-1">
+              <Badge tone="neutral">Neutral</Badge>
+              <Badge tone="plan">Simulated</Badge>
+              <Badge tone="ok">Tasted</Badge>
+              <Badge tone="warn">Heads up</Badge>
+              <Badge tone="block">Blocked</Badge>
+              <Badge tone="coral">Coral</Badge>
+            </div>
+            <p className="text-[13px] text-[var(--ot-text-3)]">
+              Blue is planning, amber caution, green confirmed, red blocked. Everywhere, always.
+              Badges pair a tint with darker text of the same hue; text on any solid fill goes
+              through --ot-on-state, because white fails AA on all four.
+            </p>
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <span className="text-[11px] tracking-[0.14em] text-[var(--ot-text-3)] uppercase">
+              Depth
+            </span>
+            <div className="flex flex-wrap gap-2">
+              {DEPTH.map((t) => (
+                <Swatch key={t} token={t} wide />
+              ))}
+            </div>
+            <p className="text-[13px] text-[var(--ot-text-3)]">
+              Four steps, each about 2% darker. Depth carries hierarchy where a border would add
+              noise — the review layers, nested detail, the technical drawer.
+            </p>
+          </div>
         </div>
       </Section>
 
