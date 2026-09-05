@@ -38,9 +38,17 @@ const STEPS = [
 export default function Landing() {
   return (
     <div className="flex min-h-dvh flex-col">
-      <header className="flex items-center justify-between gap-4 px-5 py-4 sm:px-10">
-        <Lockup layout="horizontal" size={34} />
-        <ThemeToggle />
+      {/* The brand bar, as the app design draws it: navy ground, cream lockup,
+          a cream hairline underneath. Navy and cream are the two tokens that do
+          not move between themes, so this bar looks identical in both. */}
+      <header
+        className={
+          'sticky top-0 z-50 flex items-center justify-between gap-4 ' +
+          'border-b border-[rgba(255,240,220,0.14)] bg-[var(--ot-navy)] px-5 py-[14px] sm:px-8'
+        }
+      >
+        <Lockup layout="horizontal" tone="reversed" size={30} />
+        <ThemeToggle tone="reversed" />
       </header>
 
       <main className="flex flex-1 flex-col">
