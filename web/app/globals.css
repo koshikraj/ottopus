@@ -20,6 +20,15 @@
   }
 }
 
+/* Otto's underside shade. Not in the generated tokens — the mascot needs a
+   colour a step darker than the body, and it has to move with the body in dark
+   mode or the shading inverts. */
+:root { --ot-coral-shade: #E06A47; }
+[data-theme="dark"] { --ot-coral-shade: #E0714F; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --ot-coral-shade: #E0714F; }
+}
+
 /* next/font supplies the actual families; the token names stay the contract. */
 :root {
   --ot-font-display: var(--font-quicksand), ui-rounded, system-ui, sans-serif;

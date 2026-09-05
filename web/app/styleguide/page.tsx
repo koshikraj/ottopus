@@ -1,3 +1,4 @@
+import { Otto, POSE_NAMES } from '@/components/brand'
 import {
   AddressChip,
   Badge,
@@ -118,11 +119,39 @@ export default function Styleguide() {
         </div>
       </Section>
 
+      <Section title="Otto">
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-wrap items-end gap-4">
+            {POSE_NAMES.map((p) => (
+              <div key={p} className="flex flex-col items-center gap-1">
+                <Otto pose={p} size={84} />
+                <span className="text-[11px] text-[var(--ot-text-3)]">{p}</span>
+              </div>
+            ))}
+          </div>
+          <div className="flex items-end gap-6">
+            <div className="flex flex-col items-center gap-1">
+              <Otto pose="base" size={84} animated label="Otto, drifting" />
+              <span className="text-[11px] text-[var(--ot-text-3)]">animated</span>
+            </div>
+            <div className="flex flex-col items-center gap-1">
+              <Otto pose="base" size={84} flat />
+              <span className="text-[11px] text-[var(--ot-text-3)]">flat</span>
+            </div>
+          </div>
+          <p className="text-[13px] text-[var(--ot-text-3)]">
+            The body colour is a token, so Otto moves with the palette in dark mode. Arms sway out
+            of phase and stop under reduced motion — and under data-stillness.
+          </p>
+        </div>
+      </Section>
+
       <Section title="Warning banners">
         <div className="flex flex-col gap-3">
           <Callout
             severity="caution"
             title="This arm wants unlimited token access."
+            icon={<Otto pose="heads-up" size={44} />}
             actions={
               <>
                 <Button variant="primary" size="sm">
@@ -137,7 +166,11 @@ export default function Styleguide() {
             The approval is for <CalloutValue>2²⁵⁶−1 USDC</CalloutValue>. You are spending 1,250.
             Otto can cap it to exactly that.
           </Callout>
-          <Callout severity="block" title="Ink. This contract was deployed 40 minutes ago.">
+          <Callout
+            severity="block"
+            icon={<Otto pose="ink" size={44} />}
+            title="Ink. This contract was deployed 40 minutes ago."
+          >
             Nothing was signed.
           </Callout>
           <Callout severity="info" title="Simulated on a fork 8 seconds ago." />
@@ -166,6 +199,7 @@ export default function Styleguide() {
 
       <Section title="Empty states">
         <EmptyState
+          illustration={<Otto pose="base" size={150} animated />}
           title="No plans yet"
           description="Tell your agent what you want done. Otto will work out which arm should do it."
           action={<Button variant="primary">Link a wallet</Button>}
@@ -233,7 +267,7 @@ export default function Styleguide() {
       </Section>
 
       <p className="text-[13px] text-[var(--ot-text-3)]">
-        Otto, the lockups and the badge tiers land with #48.
+        Lockups, wordmarks and the badge tiers are still to come.
       </p>
     </main>
   )
