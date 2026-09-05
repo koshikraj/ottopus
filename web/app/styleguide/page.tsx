@@ -2,6 +2,10 @@ import {
   AddressChip,
   Badge,
   Button,
+  Callout,
+  CalloutValue,
+  Chip,
+  EmptyState,
   Card,
   CardBody,
   CardHeader,
@@ -103,6 +107,7 @@ export default function Styleguide() {
           <Button variant="primary">Link a wallet</Button>
           <Button variant="secondary">See an example</Button>
           <Button variant="ghost">Cancel</Button>
+          <Button variant="link">Text action</Button>
           <Button variant="destructive">Revoke access</Button>
           <Button variant="primary" size="sm">
             Small
@@ -111,6 +116,60 @@ export default function Styleguide() {
             Disabled
           </Button>
         </div>
+      </Section>
+
+      <Section title="Warning banners">
+        <div className="flex flex-col gap-3">
+          <Callout
+            severity="caution"
+            title="This arm wants unlimited token access."
+            actions={
+              <>
+                <Button variant="primary" size="sm">
+                  Cap to 1,250
+                </Button>
+                <Button variant="secondary" size="sm">
+                  Keep unlimited
+                </Button>
+              </>
+            }
+          >
+            The approval is for <CalloutValue>2²⁵⁶−1 USDC</CalloutValue>. You are spending 1,250.
+            Otto can cap it to exactly that.
+          </Callout>
+          <Callout severity="block" title="Ink. This contract was deployed 40 minutes ago.">
+            Nothing was signed.
+          </Callout>
+          <Callout severity="info" title="Simulated on a fork 8 seconds ago." />
+          <p className="text-[13px] text-[var(--ot-text-3)]">
+            The title takes the state colour; the body stays full text colour, because the
+            explanation is the part that has to be read carefully. A warning without an
+            alternative just induces clicking.
+          </p>
+        </div>
+      </Section>
+
+      <Section title="Chips carry facts, not state">
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-wrap gap-2">
+            <Chip>Ethereum</Chip>
+            <Chip>Base</Chip>
+            <Chip>Ledger</Chip>
+            <Chip>Watch-only</Chip>
+          </div>
+          <p className="text-[13px] text-[var(--ot-text-3)]">
+            Facts take the small radius, state takes the pill. Neither is ever a clickable
+            filter — a chip that looks pressable implies a filter that does not exist.
+          </p>
+        </div>
+      </Section>
+
+      <Section title="Empty states">
+        <EmptyState
+          title="No plans yet"
+          description="Tell your agent what you want done. Otto will work out which arm should do it."
+          action={<Button variant="primary">Link a wallet</Button>}
+        />
       </Section>
 
       <Section title="Addresses and amounts">
