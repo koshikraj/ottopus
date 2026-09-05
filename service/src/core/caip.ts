@@ -102,7 +102,13 @@ export function parseChainId(input: string): ChainId {
   return chain
 }
 
+/**
+ * The exported formatters validate, so a constructed identifier can never be
+ * one the parsers would reject. Building an id and parsing it back must agree,
+ * or callers can smuggle malformed values in through the back door.
+ */
 export function formatChainId(chain: ChainId): string {
+  if (chain.namespace === 'eip155') assertEvmChainReference(chain.reference)
   return `${chain.namespace}:${chain.reference}`
 }
 
@@ -120,6 +126,10 @@ export function parseAccountId(input: string): AccountId {
 }
 
 export function formatAccountId(account: AccountId): string {
+  if (account.namespace === 'eip155') {
+    assertEvmChainReference(account.reference)
+    assertEvmAddress(account.address, 'EVM account address')
+  }
   return `${account.namespace}:${account.reference}:${normaliseAddress(account.namespace, account.address)}`
 }
 
@@ -131,6 +141,18 @@ export function parseAssetId(input: string): AssetId {
   const isEvmContract = namespace === 'eip155' && CONTRACT_ASSET_NAMESPACES.has(assetNamespace)
   if (namespace === 'eip155') assertEvmChainReference(m[2]!)
   if (isEvmContract) assertEvmAddress(m[4]!, `${assetNamespace} contract address`)
+  if (namespace === 'eip155' && assetNamespace === 'slip44') {
+    // eip155:56/slip44:60 is well-formed and names ETH's coin type on BNB
+    // Chain. isNativeAsset would call it native, and it would be the wrong
+    // currency. Only enforced for chains we know; an unknown chain has no
+    // expected coin type to check against.
+    const expected = EVM_NATIVE_COIN_TYPE[m[2]!]
+    if (expected !== undefined && m[4] !== String(expected)) {
+      throw new CaipError(
+        `native asset for eip155:${m[2]} is slip44:${expected}, not slip44:${m[4]}`,
+      )
+    }
+  }
   const asset: AssetId = {
     namespace,
     reference: m[2]!,
@@ -143,7 +165,10 @@ export function parseAssetId(input: string): AssetId {
 
 export function formatAssetId(asset: AssetId): string {
   const base = `${asset.namespace}:${asset.reference}/${asset.assetNamespace}:${asset.assetReference}`
-  return asset.tokenId === undefined ? base : `${base}/${asset.tokenId}`
+  const full = asset.tokenId === undefined ? base : `${base}/${asset.tokenId}`
+  // Round-trip through the parser so construction and parsing cannot disagree.
+  if (asset.namespace === 'eip155') parseAssetId(full)
+  return full
 }
 
 /** An account on a chain, without repeating the chain. */

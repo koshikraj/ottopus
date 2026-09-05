@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import type { ChainId } from './caip.js'
 import {
   accountIdSchema,
   assetIdSchema,
@@ -150,3 +151,17 @@ export type SwapIntent = z.infer<typeof swapIntentSchema>
 export type BridgeIntent = z.infer<typeof bridgeIntentSchema>
 export type SupplyIntent = z.infer<typeof supplyIntentSchema>
 export type Intent = z.infer<typeof intentSchema>
+
+/**
+ * The chain an intent executes on.
+ *
+ * For a bridge that is the source chain — the calls that need signing happen
+ * there, and the destination is where value arrives afterwards.
+ *
+ * This is what binds a plan to the intent it claims to fulfil: the resolved
+ * account and every call must be on this chain, or the plan executes something
+ * other than what was asked for.
+ */
+export function sourceChainOf(intent: Intent): ChainId {
+  return chainOf(parseAssetId(intent.kind === 'swap' ? intent.from : intent.asset))
+}

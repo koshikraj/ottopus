@@ -139,3 +139,83 @@ describe('plan draft is strict about security fields', () => {
     ).toThrow(/same chain as the resolved account/)
   })
 })
+
+describe('the plan is bound to its intent', () => {
+  const base = {
+    id: '018f0b6c-4a3b-4b2e-9c1d-2f5a6b7c8d9e',
+    version: 1,
+    userId: '0191a2b3-c4d5-4e6f-8a9b-0c1d2e3f4a5b',
+    createdVia: 'agent' as const,
+    provenance: 'route_provider' as const,
+    quote: { provider: 'test', expiresAt: '2026-09-05T12:00:00Z' },
+    humanPlan: { summary: 's', steps: [], feesUsd: '0.01', warnings: [] },
+    status: 'awaiting_review' as const,
+    expiresAt: '2026-09-05T12:00:00Z',
+  }
+
+  const baseIntent = {
+    kind: 'transfer' as const,
+    asset: 'eip155:8453/slip44:60',
+    amount: '1',
+    to: 'eip155:8453:0xd8da6bf26964af9d7eed9e03e53415d37aa96045',
+  }
+
+  it('rejects a Base intent resolved against an Ethereum account', () => {
+    // Resolution and calls agree with each other, and still execute something
+    // the user never asked for.
+    expect(() =>
+      planDraftSchema.parse({
+        ...base,
+        intent: baseIntent,
+        resolution: {
+          account: { caip10: 'eip155:1:0x0000000000000000000000000000000000000001' },
+          candidatesConsidered: [],
+          reason: 'r',
+        },
+        outcome: {
+          type: 'calls' as const,
+          calls: [{ to: 'eip155:1:0xd8da6bf26964af9d7eed9e03e53415d37aa96045', value: '1', data: '0x', chainId: 'eip155:1' }],
+        },
+      }),
+    ).toThrow(/chain the intent executes on/)
+  })
+
+  it('accepts a plan whose intent, account and calls all agree', () => {
+    const ok = planDraftSchema.parse({
+      ...base,
+      intent: baseIntent,
+      resolution: {
+        account: { caip10: 'eip155:8453:0x0000000000000000000000000000000000000001' },
+        candidatesConsidered: [],
+        reason: 'r',
+      },
+      outcome: {
+        type: 'calls' as const,
+        calls: [{ to: 'eip155:8453:0xd8da6bf26964af9d7eed9e03e53415d37aa96045', value: '1', data: '0x', chainId: 'eip155:8453' }],
+      },
+    })
+    expect(ok.status).toBe('awaiting_review')
+  })
+
+  it('binds a bridge to its source chain, where signing happens', () => {
+    const ok = planDraftSchema.parse({
+      ...base,
+      intent: {
+        kind: 'bridge' as const,
+        asset: 'eip155:8453/erc20:0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',
+        amount: '1',
+        toChain: 'eip155:56',
+      },
+      resolution: {
+        account: { caip10: 'eip155:8453:0x0000000000000000000000000000000000000001' },
+        candidatesConsidered: [],
+        reason: 'r',
+      },
+      outcome: {
+        type: 'calls' as const,
+        calls: [{ to: 'eip155:8453:0xd8da6bf26964af9d7eed9e03e53415d37aa96045', value: '0', data: '0x', chainId: 'eip155:8453' }],
+      },
+    })
+    expect(ok.intent.kind).toBe('bridge')
+  })
+})

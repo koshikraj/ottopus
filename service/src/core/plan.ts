@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { accountIdSchema, chainIdSchema, chainOf, parseAccountId, parseChainId, sameChain } from './caip.js'
-import { intentSchema } from './intent.js'
+import { intentSchema, sourceChainOf } from './intent.js'
 
 /**
  * The plan format. Shape only — hashing and the state machine are separate, and
@@ -152,6 +152,25 @@ export const planDraftSchema = z
         sameChain(chainOf(parseAccountId(p.resolution.account.caip10)), parseChainId(c.chainId)),
       ),
     { message: 'every call must be on the same chain as the resolved account' },
+  )
+  /**
+   * Bind the plan to the intent it claims to fulfil.
+   *
+   * The resolution and the calls agreeing with each other is not enough: they
+   * can be internally consistent and still execute something the user never
+   * asked for — a Base transfer resolved against an Ethereum account, with
+   * Ethereum calls. This is the relationship planHash exists to secure, so it
+   * has to hold before anything is hashed.
+   */
+  .refine(
+    (p) => sameChain(sourceChainOf(p.intent), chainOf(parseAccountId(p.resolution.account.caip10))),
+    { message: 'the resolved account must be on the chain the intent executes on' },
+  )
+  .refine(
+    (p) =>
+      p.outcome.type !== 'calls' ||
+      p.outcome.calls.every((c) => sameChain(sourceChainOf(p.intent), parseChainId(c.chainId))),
+    { message: 'every call must be on the chain the intent executes on' },
   )
 
 export type PlanDraft = z.infer<typeof planDraftSchema>

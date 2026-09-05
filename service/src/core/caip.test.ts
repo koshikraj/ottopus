@@ -150,3 +150,38 @@ describe('native assets are per chain, not assumed to be ETH', () => {
     expect(() => nativeAssetOf('eip155:1337')).toThrow(/unknown native currency/)
   })
 })
+
+describe('slip44 references must match the chain', () => {
+  it('rejects ETH coin type on BNB Chain', () => {
+    // Well-formed CAIP, and isNativeAsset would have called it native — while
+    // naming the wrong currency.
+    expect(() => parseAssetId('eip155:56/slip44:60')).toThrow(/slip44:714/)
+  })
+
+  it('accepts the right coin type on each chain', () => {
+    expect(parseAssetId('eip155:56/slip44:714').assetReference).toBe('714')
+    expect(parseAssetId('eip155:8453/slip44:60').assetReference).toBe('60')
+    expect(parseAssetId('eip155:137/slip44:966').assetReference).toBe('966')
+  })
+
+  it('leaves unknown chains alone, having nothing to check against', () => {
+    expect(parseAssetId('eip155:1337/slip44:60').assetReference).toBe('60')
+  })
+})
+
+describe('constructors enforce what the parsers enforce', () => {
+  it('refuses to build an account on a malformed chain', () => {
+    expect(() => accountOn({ namespace: 'eip155', reference: 'base' }, '0xd8da6bf26964af9d7eed9e03e53415d37aa96045')).toThrow(
+      /positive decimal/,
+    )
+  })
+
+  it('refuses to build an account from a short address', () => {
+    expect(() => accountOn({ namespace: 'eip155', reference: '1' }, '0xabc')).toThrow(/20-byte/)
+  })
+
+  it('round-trips: anything built parses back', () => {
+    const id = accountOn({ namespace: 'eip155', reference: '8453' }, '0xd8da6bf26964af9d7eed9e03e53415d37aa96045')
+    expect(parseAccountId(id).address).toBe('0xd8da6bf26964af9d7eed9e03e53415d37aa96045')
+  })
+})
