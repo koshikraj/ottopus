@@ -134,18 +134,75 @@ export default function Styleguide() {
       </Section>
 
       <Section title="Buttons">
-        <div className="flex flex-wrap items-center gap-3">
-          <Button variant="primary">Link a wallet</Button>
-          <Button variant="secondary">See an example</Button>
-          <Button variant="ghost">Cancel</Button>
-          <Button variant="link">Text action</Button>
-          <Button variant="destructive">Revoke access</Button>
-          <Button variant="primary" size="sm">
-            Small
-          </Button>
-          <Button variant="primary" disabled>
-            Disabled
-          </Button>
+        <div className="flex flex-col gap-5">
+          <div className="flex flex-wrap items-center gap-3">
+            <Button variant="primary">Approve and sign</Button>
+            <Button variant="secondary">Ask Otto to re-plan</Button>
+            <Button variant="ghost">Cancel</Button>
+            <Button variant="link">Text action</Button>
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <span className="text-[11px] tracking-[0.14em] text-[var(--ot-text-3)] uppercase">
+              Destructive
+            </span>
+            <div className="flex flex-wrap items-center gap-3">
+              <Button variant="destructive">Revoke grant</Button>
+              <Button variant="destructive">Unlink this wallet</Button>
+              <Button variant="danger-outline">Reject</Button>
+            </div>
+            <p className="text-[13px] text-[var(--ot-text-3)]">
+              Solid is for the committed act, where destruction is the point of the button.
+              Outline is for rejecting beside an approve — red on red would compete with the
+              primary action for the eye.
+            </p>
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <span className="text-[11px] tracking-[0.14em] text-[var(--ot-text-3)] uppercase">
+              Sizes
+            </span>
+            <div className="flex flex-wrap items-center gap-3">
+              <Button variant="primary" size="sm">
+                Small
+              </Button>
+              <Button variant="primary" size="md">
+                Medium
+              </Button>
+              <Button variant="primary" size="lg">
+                Large
+              </Button>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <span className="text-[11px] tracking-[0.14em] text-[var(--ot-text-3)] uppercase">
+              Disabled
+            </span>
+            <div className="flex flex-wrap items-center gap-3">
+              <Button variant="primary" disabled>
+                Approve and sign
+              </Button>
+              <Button variant="secondary" disabled>
+                Re-plan
+              </Button>
+              <Button variant="destructive" disabled>
+                Revoke
+              </Button>
+            </div>
+            <p className="text-[13px] text-[var(--ot-text-3)]">
+              Disabled goes neutral rather than faded. A washed coral still reads as the primary
+              action; a plain surface reads as unavailable.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3 rounded-[var(--ot-radius-md)] bg-[var(--ot-navy)] p-4">
+            <Button variant="primary">Review and sign</Button>
+            <Button variant="secondary">Re-plan</Button>
+            <span className="text-[12px] text-[var(--ot-cream)] opacity-70">
+              on navy, unchanged
+            </span>
+          </div>
         </div>
       </Section>
 
@@ -165,13 +222,14 @@ export default function Styleguide() {
               <span className="text-[11px] text-[var(--ot-text-3)]">animated</span>
             </div>
             <div className="flex flex-col items-center gap-1">
-              <Otto pose="base" size={84} flat />
-              <span className="text-[11px] text-[var(--ot-text-3)]">flat</span>
+              <Otto pose="base" size={200} flat />
+              <span className="text-[11px] text-[var(--ot-text-3)]">solid · 200px and up only</span>
             </div>
           </div>
           <p className="text-[13px] text-[var(--ot-text-3)]">
             The body colour is a token, so Otto moves with the palette in dark mode. Arms sway out
-            of phase and stop under reduced motion — and under data-stillness.
+            of phase and stop under reduced motion — and under data-stillness. The solid treatment
+            is for 200px and up: never an avatar, a favicon or a lockup.
           </p>
         </div>
       </Section>
