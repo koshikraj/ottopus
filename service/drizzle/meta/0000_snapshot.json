@@ -1,5 +1,5 @@
 {
-  "id": "f422fa26-bc6d-4205-951a-83907ca89689",
+  "id": "03dfd1a7-d43b-44a0-a7ee-d14dd5c53713",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -65,6 +65,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "unlinked_at": {
+          "name": "unlinked_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -97,6 +103,7 @@
             }
           ],
           "isUnique": true,
+          "where": "\"linked_wallets\".\"unlinked_at\" is null",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -499,14 +506,30 @@
           "with": {}
         }
       },
-      "foreignKeys": {},
+      "foreignKeys": {
+        "plan_events_plan_fk": {
+          "name": "plan_events_plan_fk",
+          "tableFrom": "plan_events",
+          "tableTo": "plans",
+          "columnsFrom": [
+            "plan_id",
+            "plan_version"
+          ],
+          "columnsTo": [
+            "id",
+            "version"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {
         "plan_events_status": {
           "name": "plan_events_status",
-          "value": "\"plan_events\".\"status\" in (\n        'draft', 'simulated', 'awaiting_signature', 'submitted',\n        'confirmed', 'failed', 'expired', 'blocked', 'superseded', 'cancelled'\n      )"
+          "value": "\"plan_events\".\"status\" in (\n        'draft', 'awaiting_review', 'awaiting_signature', 'submitted',\n        'confirmed', 'failed', 'expired', 'blocked', 'superseded', 'cancelled'\n      )"
         }
       },
       "isRLSEnabled": false
@@ -635,7 +658,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "set null",
+          "onDelete": "restrict",
           "onUpdate": "no action"
         }
       },
@@ -731,7 +754,23 @@
           "with": {}
         }
       },
-      "foreignKeys": {},
+      "foreignKeys": {
+        "simulations_plan_fk": {
+          "name": "simulations_plan_fk",
+          "tableFrom": "simulations",
+          "tableTo": "plans",
+          "columnsFrom": [
+            "plan_id",
+            "plan_version"
+          ],
+          "columnsTo": [
+            "id",
+            "version"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},

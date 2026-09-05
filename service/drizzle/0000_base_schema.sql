@@ -8,6 +8,7 @@ CREATE TABLE "linked_wallets" (
 	"is_watch_only" boolean DEFAULT false NOT NULL,
 	"ownership_proof" jsonb,
 	"proved_at" timestamp with time zone,
+	"unlinked_at" timestamp with time zone,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "linked_wallets_address_lowercase" CHECK ("linked_wallets"."address" = lower("linked_wallets"."address")),
 	CONSTRAINT "linked_wallets_proof_required" CHECK ("linked_wallets"."is_watch_only" or "linked_wallets"."ownership_proof" is not null)
@@ -56,7 +57,7 @@ CREATE TABLE "plan_events" (
 	"detail" jsonb,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "plan_events_status" CHECK ("plan_events"."status" in (
-        'draft', 'simulated', 'awaiting_signature', 'submitted',
+        'draft', 'awaiting_review', 'awaiting_signature', 'submitted',
         'confirmed', 'failed', 'expired', 'blocked', 'superseded', 'cancelled'
       ))
 );
@@ -99,9 +100,11 @@ ALTER TABLE "oauth_auth_codes" ADD CONSTRAINT "oauth_auth_codes_client_id_oauth_
 ALTER TABLE "oauth_auth_codes" ADD CONSTRAINT "oauth_auth_codes_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "oauth_tokens" ADD CONSTRAINT "oauth_tokens_client_id_oauth_clients_client_id_fk" FOREIGN KEY ("client_id") REFERENCES "public"."oauth_clients"("client_id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "oauth_tokens" ADD CONSTRAINT "oauth_tokens_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "plan_events" ADD CONSTRAINT "plan_events_plan_fk" FOREIGN KEY ("plan_id","plan_version") REFERENCES "public"."plans"("id","version") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "plans" ADD CONSTRAINT "plans_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "plans" ADD CONSTRAINT "plans_wallet_id_linked_wallets_id_fk" FOREIGN KEY ("wallet_id") REFERENCES "public"."linked_wallets"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
-CREATE UNIQUE INDEX "linked_wallets_user_account_idx" ON "linked_wallets" USING btree ("user_id","namespace","address");--> statement-breakpoint
+ALTER TABLE "plans" ADD CONSTRAINT "plans_wallet_id_linked_wallets_id_fk" FOREIGN KEY ("wallet_id") REFERENCES "public"."linked_wallets"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "simulations" ADD CONSTRAINT "simulations_plan_fk" FOREIGN KEY ("plan_id","plan_version") REFERENCES "public"."plans"("id","version") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+CREATE UNIQUE INDEX "linked_wallets_user_account_idx" ON "linked_wallets" USING btree ("user_id","namespace","address") WHERE "linked_wallets"."unlinked_at" is null;--> statement-breakpoint
 CREATE INDEX "linked_wallets_user_idx" ON "linked_wallets" USING btree ("user_id");--> statement-breakpoint
 CREATE INDEX "oauth_auth_codes_expires_idx" ON "oauth_auth_codes" USING btree ("expires_at");--> statement-breakpoint
 CREATE INDEX "oauth_tokens_user_idx" ON "oauth_tokens" USING btree ("user_id");--> statement-breakpoint

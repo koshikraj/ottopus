@@ -2,6 +2,7 @@ import { sql } from 'drizzle-orm'
 import {
   boolean,
   check,
+  foreignKey,
   index,
   integer,
   jsonb,
@@ -50,10 +51,20 @@ export const linkedWallets = pgTable(
     /** Signed challenge proving control. Null only for watch-only. */
     ownershipProof: jsonb('ownership_proof'),
     provedAt: timestamp('proved_at', { withTimezone: true }),
+    /**
+     * Unlinking is a soft delete. Plans reference the wallet they were bound to
+     * and plans are append-only, so a hard delete would try to update an
+     * immutable row and fail. It would also erase the audit trail behind a
+     * review decision. Filter on this being null to get active arms.
+     */
+    unlinkedAt: timestamp('unlinked_at', { withTimezone: true }),
     createdAt,
   },
   (t) => [
-    uniqueIndex('linked_wallets_user_account_idx').on(t.userId, t.namespace, t.address),
+    // Unique only among active wallets, so an unlinked arm can be linked again.
+    uniqueIndex('linked_wallets_user_account_idx')
+      .on(t.userId, t.namespace, t.address)
+      .where(sql`${t.unlinkedAt} is null`),
     index('linked_wallets_user_idx').on(t.userId),
     check('linked_wallets_address_lowercase', sql`${t.address} = lower(${t.address})`),
     // Watch-only wallets cannot sign, so they are the only ones without proof.
@@ -154,7 +165,12 @@ export const plans = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: 'restrict' }),
     /** The wallet this plan is bound to. Signing is gated on it. */
-    walletId: uuid('wallet_id').references(() => linkedWallets.id, { onDelete: 'set null' }),
+    /**
+     * Restrict, not set null: nulling this would be an UPDATE on an append-only
+     * row and the trigger would reject it, so a wallet delete would deadlock
+     * against plan immutability. Wallets are unlinked, never deleted.
+     */
+    walletId: uuid('wallet_id').references(() => linkedWallets.id, { onDelete: 'restrict' }),
     /** Typed intent as the agent expressed it. */
     intent: jsonb('intent').notNull(),
     /** The calls, and everything the review page renders. */
@@ -189,11 +205,20 @@ export const planEvents = pgTable(
     createdAt,
   },
   (t) => [
+    foreignKey({
+      columns: [t.planId, t.planVersion],
+      foreignColumns: [plans.id, plans.version],
+      name: 'plan_events_plan_fk',
+    }),
     index('plan_events_plan_idx').on(t.planId, t.planVersion),
     check(
       'plan_events_status',
+      // Frozen vocabulary — must match the canonical plan doc exactly.
+      // 'simulated' is deliberately absent: simulation is evidence in the
+      // simulations table, not a state. 'inked' is mascot copy for 'cancelled'
+      // and never reaches the database.
       sql`${t.status} in (
-        'draft', 'simulated', 'awaiting_signature', 'submitted',
+        'draft', 'awaiting_review', 'awaiting_signature', 'submitted',
         'confirmed', 'failed', 'expired', 'blocked', 'superseded', 'cancelled'
       )`,
     ),
@@ -220,5 +245,12 @@ export const simulations = pgTable(
     raw: jsonb('raw'),
     createdAt,
   },
-  (t) => [index('simulations_plan_idx').on(t.planId, t.planVersion)],
+  (t) => [
+    foreignKey({
+      columns: [t.planId, t.planVersion],
+      foreignColumns: [plans.id, plans.version],
+      name: 'simulations_plan_fk',
+    }),
+    index('simulations_plan_idx').on(t.planId, t.planVersion),
+  ],
 )
