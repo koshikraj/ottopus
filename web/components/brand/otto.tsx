@@ -32,6 +32,10 @@ export interface OttoProps {
 /**
  * Otto.
  *
+ * Parts are marked with data attributes rather than ids: several Ottos share a
+ * page, and duplicate ids would make any document-level selector or animation
+ * hit only the first one. Query [data-arm="3"] rather than #arm-3.
+ *
  * Body colour comes from --ot-coral, so he adapts to dark mode with the rest of
  * the palette rather than being pinned to the light-mode coral. The navy edge
  * and the cream underside are fixed, exactly as the design project has them —
@@ -58,7 +62,7 @@ export function Otto({
   const arm = (d: string, i: number, wide: number, narrow: number) => (
     <g
       key={`${d}-${i}`}
-      id={`arm-${i + 1}`}
+      data-arm={i + 1}
       className={animated ? 'otto-arm' : undefined}
       style={animated ? { animationDelay: `${-0.35 * i}s` } : undefined}
     >
@@ -77,10 +81,10 @@ export function Otto({
       aria-label={label}
       aria-hidden={label ? undefined : true}
     >
-      <g id="otto">
+      <g data-otto="">
         {art.arms.map((d, i) => arm(d, i, 30, 18))}
 
-        <g id="body">
+        <g data-part="body">
           <path
             d="M100,24 C57,24 30,54 30,98 C30,126 52,146 100,146 C148,146 170,126 170,98 C170,54 143,24 100,24 Z"
             fill={body}
@@ -103,11 +107,11 @@ export function Otto({
           </g>
         ) : null}
 
-        <g id="eyes">
+        <g data-part="eyes">
           <circle cx="79" cy="76" r={art.eyeR ?? 17} fill="#fff" stroke={outline} strokeWidth={5} />
           <circle cx="121" cy="76" r={art.eyeR ?? 17} fill="#fff" stroke={outline} strokeWidth={5} />
           {art.pupils ? (
-            <g id="pupils" className={animated ? 'otto-look' : undefined}>
+            <g data-part="pupils" className={animated ? 'otto-look' : undefined}>
               {art.pupils.map(([cx, cy, r]) => (
                 <circle key={`p-${cx}`} cx={cx} cy={cy} r={r} fill={INK} />
               ))}
@@ -119,7 +123,7 @@ export function Otto({
         </g>
 
         <g
-          id="face"
+          data-part="face"
           fill="none"
           stroke={INK}
           strokeWidth={art.faceWidth ?? 5}

@@ -1,3 +1,6 @@
+'use client'
+
+import { useId } from 'react'
 import { cn } from '@/lib/cn'
 
 const INK = '#16213E'
@@ -34,7 +37,10 @@ export function OttoBadge({
   className,
 }: OttoBadgeProps) {
   const body = 'var(--ot-coral)'
-  const clipId = `otto-badge-clip-${tier}${mono ? '-mono' : ''}`
+  // Unique per instance. A page renders several badges, and a shared clip id
+  // means every url(#…) resolves to whichever one the browser saw first — fine
+  // while the geometry matches, silently wrong the moment a variant differs.
+  const clipId = `otto-badge-${useId().replace(/:/g, '')}`
 
   return (
     <svg

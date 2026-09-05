@@ -72,3 +72,17 @@ body {
   outline-offset: 2px;
   border-radius: var(--ot-radius-sm);
 }
+
+/* Visually hidden but still focusable and announced — the theme control's real
+   radio inputs sit behind their labels. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
