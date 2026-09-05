@@ -1,5 +1,14 @@
 import { z } from 'zod'
-import { accountIdSchema, assetIdSchema, chainIdSchema } from './caip.js'
+import {
+  accountIdSchema,
+  assetIdSchema,
+  chainIdSchema,
+  chainOf,
+  parseAccountId,
+  parseAssetId,
+  parseChainId,
+  sameChain,
+} from './caip.js'
 
 /**
  * What the user asked for, as the agent expressed it.
@@ -21,6 +30,9 @@ export const amountSchema = z
   .string()
   .regex(/^[0-9]+$/, 'expected an integer amount in base units, as a string')
   .refine((s) => s.length <= 78, 'amount is implausibly large')
+  // A zero-value plan is either useless or provider-dependent, and it still
+  // asks someone to sign something.
+  .refine((s) => /[1-9]/.test(s), 'amount must be greater than zero')
 
 /** Basis points, so 50 = 0.5%. Capped because a wide slippage is a real loss. */
 export const slippageBpsSchema = z.number().int().min(1).max(500)
@@ -33,44 +45,98 @@ const base = {
   fromAccount: accountIdSchema.optional(),
 }
 
-export const transferIntentSchema = z.object({
-  ...base,
-  kind: z.literal('transfer'),
-  asset: assetIdSchema,
-  amount: amountSchema,
-  to: accountIdSchema,
-})
+/**
+ * Every identifier in an intent must name the same chain.
+ *
+ * Validating each field on its own accepts a Base asset sent to a mainnet
+ * recipient from a BNB account — three valid identifiers describing something
+ * that cannot happen. Moving value between chains is a bridge, which is its own
+ * intent with its own review.
+ */
+function chainsAgree(
+  ids: readonly (string | undefined)[],
+  parse: (id: string) => { namespace: string; reference: string },
+): boolean {
+  const chains = ids.filter((v): v is string => v !== undefined).map(parse)
+  const first = chains[0]
+  return first === undefined || chains.every((c) => sameChain(first, c))
+}
 
-export const swapIntentSchema = z.object({
-  ...base,
-  kind: z.literal('swap'),
-  from: assetIdSchema,
-  to: assetIdSchema,
-  /** Exactly one side is fixed; the other is what the quote determines. */
-  amountIn: amountSchema.optional(),
-  amountOut: amountSchema.optional(),
-  slippageBps: slippageBpsSchema.optional(),
-}).refine(
-  (v) => (v.amountIn === undefined) !== (v.amountOut === undefined),
-  { message: 'give exactly one of amountIn or amountOut' },
-)
+const SAME_CHAIN = 'every asset and account in an intent must be on the same chain'
+
+export const transferIntentSchema = z
+  .object({
+    ...base,
+    kind: z.literal('transfer'),
+    asset: assetIdSchema,
+    amount: amountSchema,
+    to: accountIdSchema,
+  })
+  .refine(
+    (v) =>
+      chainsAgree([v.asset], parseAssetId) &&
+      chainsAgree([v.to, v.fromAccount], parseAccountId) &&
+      sameChain(chainOf(parseAssetId(v.asset)), chainOf(parseAccountId(v.to))) &&
+      (v.fromAccount === undefined ||
+        sameChain(chainOf(parseAssetId(v.asset)), chainOf(parseAccountId(v.fromAccount)))),
+    { message: SAME_CHAIN },
+  )
+
+export const swapIntentSchema = z
+  .object({
+    ...base,
+    kind: z.literal('swap'),
+    from: assetIdSchema,
+    to: assetIdSchema,
+    /** Exactly one side is fixed; the other is what the quote determines. */
+    amountIn: amountSchema.optional(),
+    amountOut: amountSchema.optional(),
+    slippageBps: slippageBpsSchema.optional(),
+  })
+  .refine((v) => (v.amountIn === undefined) !== (v.amountOut === undefined), {
+    message: 'give exactly one of amountIn or amountOut',
+  })
+  .refine(
+    (v) =>
+      sameChain(chainOf(parseAssetId(v.from)), chainOf(parseAssetId(v.to))) &&
+      (v.fromAccount === undefined ||
+        sameChain(chainOf(parseAssetId(v.from)), chainOf(parseAccountId(v.fromAccount)))),
+    { message: `${SAME_CHAIN} — swapping across chains is a bridge` },
+  )
 
 /** Stretch capabilities. Defined now so the plan format does not change later. */
-export const bridgeIntentSchema = z.object({
-  ...base,
-  kind: z.literal('bridge'),
-  asset: assetIdSchema,
-  amount: amountSchema,
-  toChain: chainIdSchema,
-})
+export const bridgeIntentSchema = z
+  .object({
+    ...base,
+    kind: z.literal('bridge'),
+    asset: assetIdSchema,
+    amount: amountSchema,
+    toChain: chainIdSchema,
+  })
+  .refine(
+    (v) =>
+      v.fromAccount === undefined ||
+      sameChain(chainOf(parseAssetId(v.asset)), chainOf(parseAccountId(v.fromAccount))),
+    { message: 'the source account must be on the same chain as the asset' },
+  )
+  .refine((v) => !sameChain(chainOf(parseAssetId(v.asset)), parseChainId(v.toChain)), {
+    message: 'a bridge must cross chains — source and destination are the same',
+  })
 
-export const supplyIntentSchema = z.object({
-  ...base,
-  kind: z.literal('supply'),
-  asset: assetIdSchema,
-  amount: amountSchema,
-  protocol: z.string().min(1),
-})
+export const supplyIntentSchema = z
+  .object({
+    ...base,
+    kind: z.literal('supply'),
+    asset: assetIdSchema,
+    amount: amountSchema,
+    protocol: z.string().min(1),
+  })
+  .refine(
+    (v) =>
+      v.fromAccount === undefined ||
+      sameChain(chainOf(parseAssetId(v.asset)), chainOf(parseAccountId(v.fromAccount))),
+    { message: SAME_CHAIN },
+  )
 
 export const intentSchema = z.union([
   transferIntentSchema,

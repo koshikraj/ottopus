@@ -50,11 +50,13 @@ describe('account ids', () => {
   })
 
   it('builds an account from a chain', () => {
-    expect(accountOn({ namespace: 'eip155', reference: '1' }, '0xABC')).toBe('eip155:1:0xabc')
+    expect(accountOn({ namespace: 'eip155', reference: '1' }, '0xD8DA6BF26964AF9D7EED9E03E53415D37AA96045')).toBe(
+      'eip155:1:0xd8da6bf26964af9d7eed9e03e53415d37aa96045',
+    )
   })
 
   it('recovers the chain from an account', () => {
-    expect(chainOf(parseAccountId('eip155:8453:0xabc'))).toEqual({
+    expect(chainOf(parseAccountId('eip155:8453:0xd8da6bf26964af9d7eed9e03e53415d37aa96045'))).toEqual({
       namespace: 'eip155',
       reference: '8453',
     })
@@ -73,14 +75,14 @@ describe('asset ids', () => {
   })
 
   it('parses an NFT with a token id', () => {
-    const nft = parseAssetId('eip155:1/erc721:0xabc/1234')
+    const nft = parseAssetId('eip155:1/erc721:0x0000000000000000000000000000000000000001/1234')
     expect(nft.tokenId).toBe('1234')
   })
 
   it('recognises the native asset', () => {
     expect(nativeAssetOf('eip155:8453')).toBe('eip155:8453/slip44:60')
     expect(isNativeAsset('eip155:8453/slip44:60')).toBe(true)
-    expect(isNativeAsset('eip155:8453/erc20:0xabc')).toBe(false)
+    expect(isNativeAsset('eip155:8453/erc20:0x833589fcd6edb6e08f4c7c32d4f71b54bda02913')).toBe(false)
   })
 
   it('rejects a bare token address', () => {
@@ -105,5 +107,46 @@ describe('schemas normalise on the way in', () => {
     expect(() => chainIdSchema.parse('base')).toThrow()
     expect(() => chainIdSchema.parse('8453')).toThrow()
     expect(() => assetIdSchema.parse('USDC')).toThrow()
+  })
+})
+
+describe('eip155 is validated properly, not just as generic CAIP', () => {
+  it('rejects a non-numeric chain reference', () => {
+    // Well-formed CAIP, cannot produce a transaction.
+    expect(() => parseChainId('eip155:base')).toThrow(/positive decimal/)
+  })
+
+  it('rejects a short or non-hex account address', () => {
+    expect(() => parseAccountId('eip155:1:0xabc')).toThrow(/20-byte/)
+    expect(() => parseAccountId('eip155:1:hello')).toThrow(/20-byte/)
+  })
+
+  it('rejects a short contract address for token assets', () => {
+    expect(() => parseAssetId('eip155:1/erc20:0xabc')).toThrow(/contract address/)
+    expect(() => parseAssetId('eip155:1/erc721:0xabc')).toThrow(/contract address/)
+  })
+
+  it('still allows non-contract asset namespaces through', () => {
+    expect(parseAssetId('eip155:1/slip44:60').assetReference).toBe('60')
+  })
+
+  it('refuses a chain id beyond safe integer range', () => {
+    expect(() => toEvmChainId('eip155:99999999999999999999')).toThrow()
+    expect(() => fromEvmChainId(Number.MAX_SAFE_INTEGER + 2)).toThrow()
+  })
+})
+
+describe('native assets are per chain, not assumed to be ETH', () => {
+  it('gives ETH on ethereum and base', () => {
+    expect(nativeAssetOf('eip155:1')).toBe('eip155:1/slip44:60')
+    expect(nativeAssetOf('eip155:8453')).toBe('eip155:8453/slip44:60')
+  })
+
+  it('gives BNB, not ETH, on BNB Smart Chain', () => {
+    expect(nativeAssetOf('eip155:56')).toBe('eip155:56/slip44:714')
+  })
+
+  it('throws on an unknown chain rather than naming the wrong currency', () => {
+    expect(() => nativeAssetOf('eip155:1337')).toThrow(/unknown native currency/)
   })
 })

@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { accountIdSchema, chainIdSchema } from './caip.js'
+import { accountIdSchema, chainIdSchema, chainOf, parseAccountId, parseChainId, sameChain } from './caip.js'
 import { intentSchema } from './intent.js'
 
 /**
@@ -48,13 +48,19 @@ const hexSchema = z
   .regex(/^0x[0-9a-fA-F]*$/, 'expected 0x-prefixed hex')
   .transform((s) => s.toLowerCase())
 
-export const callSchema = z.object({
-  to: accountIdSchema,
-  /** Wei as a decimal string, for the same reason amounts are strings. */
-  value: z.string().regex(/^[0-9]+$/),
-  data: hexSchema,
-  chainId: chainIdSchema,
-})
+export const callSchema = z
+  .strictObject({
+    to: accountIdSchema,
+    /** Wei as a decimal string, for the same reason amounts are strings. */
+    value: z.string().regex(/^[0-9]+$/),
+    data: hexSchema,
+    chainId: chainIdSchema,
+  })
+  // A target on one chain with chainId naming another is a transaction sent to
+  // whatever happens to live at that address on the wrong network.
+  .refine((c) => sameChain(chainOf(parseAccountId(c.to)), parseChainId(c.chainId)), {
+    message: 'call target and chainId must name the same chain',
+  })
 
 /**
  * Where the calls came from. Agent-crafted plans get a heightened policy tier
@@ -108,23 +114,47 @@ export const humanPlanSchema = z.object({
   warnings: z.array(warningSchema),
 })
 
-export const planSchema = z.object({
-  id: z.uuid(),
-  /** A replacement bumps this and kills the old review link. */
-  version: z.number().int().positive(),
-  userId: z.uuid(),
-  createdVia: z.enum(['agent', 'web']),
-  intent: intentSchema,
-  provenance: provenanceSchema,
-  resolution: resolutionSchema,
-  outcome: outcomeSchema,
-  quote: quoteSchema,
-  humanPlan: humanPlanSchema,
-  status: planStatusSchema,
-  expiresAt: z.iso.datetime(),
-})
+/**
+ * A plan before verification: routed and explained, but not yet hashed, decoded
+ * or simulated.
+ *
+ * Deliberately NOT named planSchema. The canonical Plan also carries planHash,
+ * decodedActions and simulation, and zod strips unknown keys by default — so a
+ * schema missing those would quietly delete the three security-relevant fields
+ * from a complete plan it was asked to validate. Strict, so an unexpected key
+ * is an error rather than silent data loss.
+ *
+ * planHash and the state machine arrive in #15, decodedActions in #18, and
+ * simulation in #23. The complete planSchema is assembled there.
+ */
+export const planDraftSchema = z
+  .strictObject({
+    id: z.uuid(),
+    /** A replacement bumps this and kills the old review link. */
+    version: z.number().int().positive(),
+    userId: z.uuid(),
+    createdVia: z.enum(['agent', 'web']),
+    intent: intentSchema,
+    provenance: provenanceSchema,
+    resolution: resolutionSchema,
+    outcome: outcomeSchema,
+    quote: quoteSchema,
+    humanPlan: humanPlanSchema,
+    status: planStatusSchema,
+    expiresAt: z.iso.datetime(),
+  })
+  // The plan names one account and signing is gated on it, so a call on another
+  // chain could never be signed by the account the review page bound.
+  .refine(
+    (p) =>
+      p.outcome.type !== 'calls' ||
+      p.outcome.calls.every((c) =>
+        sameChain(chainOf(parseAccountId(p.resolution.account.caip10)), parseChainId(c.chainId)),
+      ),
+    { message: 'every call must be on the same chain as the resolved account' },
+  )
 
-export type Plan = z.infer<typeof planSchema>
+export type PlanDraft = z.infer<typeof planDraftSchema>
 export type Call = z.infer<typeof callSchema>
 export type Warning = z.infer<typeof warningSchema>
 export type Outcome = z.infer<typeof outcomeSchema>

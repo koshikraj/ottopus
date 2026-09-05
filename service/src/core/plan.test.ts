@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import { describe, expect, it } from 'vitest'
-import { PLAN_STATUSES, callSchema, isTerminal, planStatusSchema } from './plan.js'
+import { PLAN_STATUSES, callSchema, isTerminal, planDraftSchema, planStatusSchema } from './plan.js'
 
 describe('status vocabulary', () => {
   /**
@@ -59,7 +59,83 @@ describe('calls', () => {
   })
 
   it('rejects a value that is not an integer string', () => {
-    const bad = { to: 'eip155:1:0xabc', value: '1.5', data: '0x', chainId: 'eip155:1' }
+    const bad = { to: 'eip155:1:0xd8da6bf26964af9d7eed9e03e53415d37aa96045', value: '1.5', data: '0x', chainId: 'eip155:1' }
     expect(() => callSchema.parse(bad)).toThrow()
+  })
+
+  it('rejects a target and chainId that name different chains', () => {
+    // Otherwise the transaction goes to whatever lives at that address on the
+    // wrong network.
+    expect(() =>
+      callSchema.parse({
+        to: 'eip155:8453:0xd8da6bf26964af9d7eed9e03e53415d37aa96045',
+        value: '0',
+        data: '0x',
+        chainId: 'eip155:1',
+      }),
+    ).toThrow(/same chain/)
+  })
+
+  it('rejects an unknown key rather than silently dropping it', () => {
+    expect(() =>
+      callSchema.parse({
+        to: 'eip155:1:0xd8da6bf26964af9d7eed9e03e53415d37aa96045',
+        value: '0',
+        data: '0x',
+        chainId: 'eip155:1',
+        gasLimit: '21000',
+      }),
+    ).toThrow()
+  })
+})
+
+describe('plan draft is strict about security fields', () => {
+  const draft = {
+    id: '018f0b6c-4a3b-4b2e-9c1d-2f5a6b7c8d9e',
+    version: 1,
+    userId: '0191a2b3-c4d5-4e6f-8a9b-0c1d2e3f4a5b',
+    createdVia: 'agent' as const,
+    intent: {
+      kind: 'transfer' as const,
+      asset: 'eip155:8453/slip44:60',
+      amount: '1',
+      to: 'eip155:8453:0xd8da6bf26964af9d7eed9e03e53415d37aa96045',
+    },
+    provenance: 'route_provider' as const,
+    resolution: {
+      account: { caip10: 'eip155:8453:0x0000000000000000000000000000000000000001' },
+      candidatesConsidered: [],
+      reason: 'only funded account',
+    },
+    outcome: {
+      type: 'calls' as const,
+      calls: [{ to: 'eip155:8453:0xd8da6bf26964af9d7eed9e03e53415d37aa96045', value: '1', data: '0x', chainId: 'eip155:8453' }],
+    },
+    quote: { provider: 'test', expiresAt: '2026-09-05T12:00:00Z' },
+    humanPlan: { summary: 's', steps: [], feesUsd: '0.01', warnings: [] },
+    status: 'awaiting_review' as const,
+    expiresAt: '2026-09-05T12:00:00Z',
+  }
+
+  it('accepts a coherent draft', () => {
+    expect(planDraftSchema.parse(draft).version).toBe(1)
+  })
+
+  it('refuses a plan carrying planHash rather than quietly stripping it', () => {
+    // Zod strips unknown keys by default, so a non-strict schema here would
+    // silently delete planHash, decodedActions and simulation.
+    expect(() => planDraftSchema.parse({ ...draft, planHash: '0xdeadbeef' })).toThrow()
+  })
+
+  it('rejects a call on a chain the resolved account is not on', () => {
+    expect(() =>
+      planDraftSchema.parse({
+        ...draft,
+        outcome: {
+          type: 'calls' as const,
+          calls: [{ to: 'eip155:1:0xd8da6bf26964af9d7eed9e03e53415d37aa96045', value: '1', data: '0x', chainId: 'eip155:1' }],
+        },
+      }),
+    ).toThrow(/same chain as the resolved account/)
   })
 })
