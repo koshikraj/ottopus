@@ -80,8 +80,8 @@ const TONES: Record<ThemeToggleTone, { frame: string; idle: string }> = {
     idle: 'text-[var(--ot-text-2)] hover:text-[var(--ot-text)]',
   },
   reversed: {
-    frame: 'border-[rgba(255,240,220,0.24)] bg-transparent',
-    idle: 'text-[var(--ot-cream)]/70 hover:text-[var(--ot-cream)]',
+    frame: 'border-[rgba(255,240,220,0.35)] bg-transparent',
+    idle: 'text-[var(--ot-cream)]/75 hover:text-[var(--ot-cream)]',
   },
 }
 
