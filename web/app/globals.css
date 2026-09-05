@@ -27,6 +27,16 @@
   --ot-font-mono: var(--font-jetbrains-mono), ui-monospace, monospace;
 }
 
+/* Fonts do need a @theme mapping, unlike the colours below.
+   Tailwind cannot infer the data type of font-[var(--x)] — font-* is ambiguous
+   between family and weight — so it silently emits nothing. Mapping them here
+   gives real font-display / font-ui / font-mono utilities. */
+@theme inline {
+  --font-display: var(--ot-font-display);
+  --font-ui: var(--ot-font-ui);
+  --font-mono: var(--ot-font-mono);
+}
+
 /* No @theme colour mapping on purpose.
    Components reference var(--ot-*) directly — the token name is the contract,
    and it is the same string in CSS, in the design project and in a review
