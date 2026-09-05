@@ -1,4 +1,5 @@
-import { Otto, POSE_NAMES } from '@/components/brand'
+import { Lockup, Otto, OttoBadge, POSE_NAMES } from '@/components/brand'
+import { ThemeToggle } from '@/components/theme-toggle'
 import {
   AddressChip,
   Badge,
@@ -63,12 +64,41 @@ export default function Styleguide() {
 
   return (
     <main className="mx-auto flex max-w-3xl flex-col gap-6 px-6 py-12">
-      <header>
-        <h1 className="font-display text-[40px] font-bold tracking-[-0.03em]">Design system</h1>
-        <p className="mt-1 text-[15px] text-[var(--ot-text-2)]">
-          Tokens, primitives and the rules they encode. Follows your system theme.
-        </p>
+      <header className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="font-display text-[40px] font-bold tracking-[-0.03em]">Design system</h1>
+          <p className="mt-1 text-[15px] text-[var(--ot-text-2)]">
+            Tokens, primitives and the rules they encode.
+          </p>
+        </div>
+        <ThemeToggle />
       </header>
+
+      <Section title="Identity">
+        <div className="flex flex-col gap-5">
+          <div className="flex flex-wrap items-center gap-8">
+            <Lockup layout="horizontal" size={44} />
+            <Lockup layout="stacked" size={56} />
+            <Lockup layout="wordmark" size={36} />
+          </div>
+          <div className="flex flex-wrap items-center gap-8 rounded-[var(--ot-radius-md)] bg-[var(--ot-navy)] p-5">
+            <Lockup layout="horizontal" size={44} tone="reversed" />
+            <Lockup layout="horizontal" size={44} tone="coral" />
+          </div>
+          <div className="flex items-end gap-5">
+            {[64, 32, 24, 16].map((s) => (
+              <div key={s} className="flex flex-col items-center gap-1">
+                <OttoBadge size={s} tier={s < 24 ? 'icon' : 'outlined'} />
+                <span className="text-[11px] text-[var(--ot-text-3)]">{s}</span>
+              </div>
+            ))}
+          </div>
+          <p className="text-[13px] text-[var(--ot-text-3)]">
+            The lockup is the badge beside real text, never a flattened image. Below 24px the
+            badge drops its ring and highlights — they turn to mud at that size.
+          </p>
+        </div>
+      </Section>
 
       <Section title="Three faces">
         <div className="flex flex-col gap-4">
