@@ -7,12 +7,13 @@ import { cn } from '@/lib/cn'
 
 const STORAGE_KEY = 'ot-nudge-first-intent'
 
-/** Verbatim from the design. The first is the smallest ask, so it copies. */
-export const EXAMPLE_PROMPTS = [
-  'Swap 20 USDC for ETH on Base',
-  'Move my idle USDC to the cheapest chain',
-  'Show me every unlimited approval I have',
-] as const
+/**
+ * One prompt, not the design's three. The nudge asks for a first try, and the
+ * smallest possible ask is the one most likely to be taken — three options turn
+ * "try this" into a decision. The other two the design lists are recorded in
+ * the issue if a picker is ever wanted.
+ */
+export const EXAMPLE_PROMPT = 'Swap 20 USDC for ETH on Base'
 
 function isDismissed(): boolean {
   try {
@@ -51,10 +52,6 @@ type CopyState = 'idle' | 'copied' | 'failed'
  *
  * A popover on the portfolio, never a blocking modal — it sits at the bottom of
  * the page and can be ignored forever. Dismissed once, it stays dismissed.
- *
- * The copy confirmation echoes the prompt rather than saying "Copied": three
- * examples are on screen and one button copies, so the only way to know which
- * one you got is to be told.
  */
 export function FirstIntentNudge({ className }: { className?: string }) {
   const dismissed = useSyncExternalStore(subscribe, isDismissed, dismissedOnServer)
@@ -71,7 +68,7 @@ export function FirstIntentNudge({ className }: { className?: string }) {
 
   const onCopy = useCallback(async () => {
     try {
-      await navigator.clipboard.writeText(EXAMPLE_PROMPTS[0])
+      await navigator.clipboard.writeText(EXAMPLE_PROMPT)
       setCopy('copied')
     } catch {
       setCopy('failed')
@@ -98,20 +95,13 @@ export function FirstIntentNudge({ className }: { className?: string }) {
           </p>
         </div>
 
-        <ul className="flex list-none flex-col gap-[7px] p-0">
-          {EXAMPLE_PROMPTS.map((prompt) => (
-            <li
-              key={prompt}
-              className="rounded-[10px] bg-[var(--ot-surface-2)] px-3 py-[10px] text-[13px]"
-            >
-              &ldquo;{prompt}&rdquo;
-            </li>
-          ))}
-        </ul>
+        <p className="m-0 rounded-[10px] bg-[var(--ot-surface-2)] px-3 py-[10px] text-[13px]">
+          &ldquo;{EXAMPLE_PROMPT}&rdquo;
+        </p>
 
         <div className="flex flex-wrap items-center gap-2">
           <Button variant="secondary" size="sm" onClick={onCopy}>
-            Copy a prompt
+            Copy prompt
           </Button>
           <Button variant="ghost" size="sm" onClick={dismiss}>
             Not now
@@ -121,9 +111,9 @@ export function FirstIntentNudge({ className }: { className?: string }) {
             className="text-[12px] text-[var(--ot-text-3)]"
           >
             {copy === 'copied'
-              ? `Copied “${EXAMPLE_PROMPTS[0]}”`
+              ? 'Copied'
               : copy === 'failed'
-                ? 'Could not reach the clipboard — select the first prompt to copy it.'
+                ? 'Could not reach the clipboard — select the prompt to copy it.'
                 : ''}
           </span>
         </div>
