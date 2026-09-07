@@ -13,6 +13,7 @@ import {
   StillnessProvider,
 } from '@/components/motion'
 import { ThemeToggle } from '@/components/theme-toggle'
+import { DialogDemo } from './dialog-demo'
 import { cn } from '@/lib/cn'
 import {
   AddressChip,
@@ -397,6 +398,17 @@ export default function Styleguide() {
           <p className="text-[13px] text-[var(--ot-text-3)]">
             Truncated for recognition, full where a value is being checked. Dust renders as a
             bound, never as zero.
+          </p>
+        </div>
+      </Section>
+
+      <Section title="Dialogs and sheets">
+        <div className="flex flex-col gap-3">
+          <DialogDemo />
+          <p className="text-[13px] text-[var(--ot-text-3)]">
+            Overlay above 640px, bottom sheet below it — full width, grab handle, primary action
+            last and thumb-reachable. The focus trap, Escape and the inert background are the
+            browser&rsquo;s, from a native dialog. Push the sheet down to dismiss it.
           </p>
         </div>
       </Section>
