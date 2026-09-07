@@ -18,6 +18,15 @@ export interface Config {
   /** Public HTTPS origin this service is reachable at, for OAuth redirects. */
   publicUrl: string | undefined
   gitCommit: string
+  /** Postgres. Absent locally until someone points at a database. */
+  databaseUrl: string | undefined
+  /**
+   * Privy. The verification key is a public ES256 key, not a secret — the
+   * service verifies tokens offline and never calls Privy's API, so there is
+   * no app secret here and nothing to leak if this value is read.
+   */
+  privyAppId: string | undefined
+  privyVerificationKey: string | undefined
 }
 
 class ConfigError extends Error {}
@@ -41,6 +50,12 @@ function readInt(name: string, fallback: number): number {
   return n
 }
 
+/** Empty and unset mean the same thing: not configured. */
+function readOptional(name: string): string | undefined {
+  const raw = process.env[name]
+  return raw === undefined || raw.trim() === '' ? undefined : raw
+}
+
 function readUrl(name: string): string | undefined {
   const raw = process.env[name]
   if (raw === undefined || raw === '') return undefined
@@ -58,6 +73,9 @@ export function loadConfig(): Config {
     host: process.env.HOST ?? '0.0.0.0',
     publicUrl: readUrl('PUBLIC_URL'),
     gitCommit: process.env.GIT_COMMIT ?? 'dev',
+    databaseUrl: readOptional('DATABASE_URL'),
+    privyAppId: readOptional('PRIVY_APP_ID'),
+    privyVerificationKey: readOptional('PRIVY_JWT_VERIFICATION_KEY'),
   }
 }
 
