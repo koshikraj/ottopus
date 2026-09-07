@@ -16,6 +16,37 @@ import * as jose from 'jose'
 
 export class PrivyAuthError extends Error {}
 
+/**
+ * Says why a verification key is unusable, or null when it looks fine.
+ *
+ * The dashboard hands you a multi-line PEM, and pasting that straight into a
+ * .env without quotes leaves `-----BEGIN PUBLIC KEY-----` and nothing else —
+ * the parser stops at the first newline. That failure otherwise surfaces as
+ * every request returning 401, which sends you looking at tokens instead of at
+ * the one line of config that is actually wrong.
+ */
+export function keyProblem(raw: string | undefined): string | null {
+  const key = (raw ?? '').trim()
+  if (!key) return 'not set'
+  if (key.startsWith('{')) {
+    try {
+      JSON.parse(key)
+      return null
+    } catch {
+      return 'looks like a JWK but is not valid JSON'
+    }
+  }
+  const hasBegin = key.includes('BEGIN PUBLIC KEY')
+  const hasEnd = key.includes('END PUBLIC KEY')
+  if (hasBegin && !hasEnd) {
+    return 'truncated after the BEGIN line — quote the value in .env ("-----BEGIN…"), or put it on one line with \\n escapes'
+  }
+  if (!hasBegin && !hasEnd && key.length < 40) {
+    return `too short to be a public key (${key.length} characters)`
+  }
+  return null
+}
+
 export interface PrivyClaims {
   /** The user's Privy DID, e.g. did:privy:xxxxx. The join key on users. */
   did: string
@@ -52,7 +83,9 @@ export function createPrivyVerifier({
   type Key = Awaited<ReturnType<typeof jose.importJWK>>
 
   const load = async (): Promise<Key> => {
-    const trimmed = verificationKey.trim()
+    // A single-line PEM with escaped newlines is how this value survives most
+    // secret stores, so unescape before anything else looks at it.
+    const trimmed = verificationKey.trim().replace(/\\n/g, '\n')
     // The dashboard gives either shape depending on where you copy from.
     if (trimmed.startsWith('{')) return jose.importJWK(JSON.parse(trimmed), ALGORITHM)
     const pem = trimmed.includes('BEGIN PUBLIC KEY')

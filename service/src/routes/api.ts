@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import { createPrivyVerifier, requireSession } from '../auth/index.js'
+import { createPrivyVerifier, keyProblem, requireSession } from '../auth/index.js'
 import { config } from '../config.js'
 import { getDb } from '../db/client.js'
 
@@ -19,8 +19,18 @@ apiApp.get('/health', (c) => c.json({ ok: true, surface: 'api' }))
  * answer 503 rather than 401: "not configured" and "not signed in" are
  * different problems, and returning 401 here would send someone to fix their
  * session when the deployment is what is missing.
+ *
+ * The key is checked for shape, not just presence — a truncated PEM is present
+ * and useless, and it would otherwise fail as a 401 on every request.
  */
-const ready = Boolean(config.privyAppId && config.privyVerificationKey && config.databaseUrl)
+const missing: string[] = []
+if (!config.privyAppId) missing.push('PRIVY_APP_ID is not set')
+if (!config.databaseUrl) missing.push('DATABASE_URL is not set')
+const keyIssue = keyProblem(config.privyVerificationKey)
+if (keyIssue) missing.push(`PRIVY_JWT_VERIFICATION_KEY ${keyIssue}`)
+
+const ready = missing.length === 0
+if (!ready) console.error(`[api] sign-in disabled — ${missing.join('; ')}`)
 
 if (ready) {
   const session = requireSession({
@@ -42,10 +52,7 @@ if (ready) {
 } else {
   apiApp.get('/me', (c) =>
     c.json(
-      {
-        error: 'not_configured',
-        detail: 'PRIVY_APP_ID, PRIVY_JWT_VERIFICATION_KEY and DATABASE_URL must all be set.',
-      },
+      { error: 'not_configured', detail: missing },
       503,
     ),
   )

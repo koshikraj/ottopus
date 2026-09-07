@@ -3,6 +3,7 @@ export {
   PrivyAuthError,
   bearerToken,
   createPrivyVerifier,
+  keyProblem,
   type PrivyClaims,
   type PrivyVerifier,
   type PrivyVerifierConfig,

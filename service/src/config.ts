@@ -7,6 +7,27 @@
  * first request that needs a missing value.
  */
 
+/**
+ * Local development reads .env; every platform injects the environment
+ * directly and ships no such file. Absent is the normal case in production,
+ * so a missing file is not an error — but a malformed one is, and that should
+ * be said at boot rather than discovered at the first request that needs it.
+ *
+ * Values already in the environment win: `pnpm db:migrate` and a one-off
+ * `PORT=1234 pnpm start` must not be overridden by a stale file.
+ */
+function loadDotEnv(): void {
+  try {
+    process.loadEnvFile()
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+      console.error(`[config] .env could not be parsed: ${(err as Error).message}`)
+    }
+  }
+}
+
+loadDotEnv()
+
 export type NodeEnv = 'development' | 'production' | 'test'
 
 export interface Config {
