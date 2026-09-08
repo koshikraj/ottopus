@@ -18,6 +18,7 @@ import {
   type WalletsFailure,
 } from '@/components/wallets'
 import type { Arm } from '@/lib/api'
+import { cn } from '@/lib/cn'
 import { formatDelta, formatMoney, formatMoneyFlat, formatShare } from '@/lib/format'
 import {
   NetworkFilter, TokenTable, usePortfolio, portfolioOf, portfolioFailureText, unreadArms,
@@ -114,6 +115,8 @@ export function Frame({
   const balancesLoading = wallets.length > 0 && (!portfolioState || portfolioState.status === 'loading')
   const linked = wallets.length > 0
   const free = MAX_ARMS - wallets.length
+  /** The one view that carries the nudge in its own right-hand rail. */
+  const tokensView = linked && tab !== 'wallets'
 
   return (
     <div data-portfolio className="relative flex min-h-0 flex-1 flex-col [&>*]:shrink-0">
@@ -218,12 +221,25 @@ export function Frame({
             <div className="ot-token-sea relative flex min-h-0 flex-1 flex-col overflow-hidden">
               <div className="ot-caustic" />
               <div className="ot-caustic ot-caustic--b" />
-              <BubbleField pattern="canvas" />
-              <SeaLife />
-              <div className="relative flex min-h-0 flex-1 flex-col">
-                {balancesLoading ? <SkeletonShelf rows={3} avatar={36} className="m-4 sm:m-[22px]" /> : hasReading && selected ? (
-                  <TokenTable rows={selected.assets} chains={selected.chains} currency={selected.currency} />
-                ) : <p className="px-5 py-5 text-[var(--ot-text-2)]">Balances could not be read. Refresh to try again.</p>}
+              <BubbleField pattern="canvas" className="xl:left-auto xl:w-[352px]" />
+              <SeaLife className="xl:left-auto xl:w-[352px]" />
+              <div className="relative flex min-h-0 flex-1">
+                <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+                  {balancesLoading ? <SkeletonShelf rows={3} avatar={36} className="m-4 sm:m-[22px]" /> : hasReading && selected ? (
+                    <TokenTable rows={selected.assets} chains={selected.chains} currency={selected.currency} />
+                  ) : <p className="px-5 py-5 text-[var(--ot-text-2)]">Balances could not be read. Refresh to try again.</p>}
+                </div>
+                {/* The right-hand space. Reserved as a column of its own so the
+                    table reads left-aligned rather than adrift in the middle;
+                    the nudge is the only thing in it today. Below xl there is
+                    no room for a rail, so it stays the overlay it was — now
+                    anchored to this section rather than to the whole page. */}
+                <aside aria-label="Suggestions" className={cn(
+                  'absolute right-3 bottom-3 left-3 z-20 max-h-[45dvh] overflow-y-auto rounded-2xl bg-[var(--ot-card)] shadow-lg sm:left-auto sm:w-[400px]',
+                  'xl:static xl:z-auto xl:max-h-none xl:w-[352px] xl:shrink-0 xl:rounded-none xl:bg-transparent xl:pt-1 xl:shadow-none',
+                )}>
+                  <FirstIntentNudge />
+                </aside>
               </div>
             </div>
           )}
@@ -252,7 +268,9 @@ export function Frame({
       )}
 
       {dialog}
-      <FirstIntentNudge className="absolute right-3 bottom-3 left-3 z-20 max-h-[45dvh] overflow-y-auto rounded-2xl bg-[var(--ot-card)] shadow-lg sm:left-auto" />
+      {tokensView ? null : (
+        <FirstIntentNudge className="absolute right-3 bottom-3 left-3 z-20 max-h-[45dvh] overflow-y-auto rounded-2xl bg-[var(--ot-card)] shadow-lg sm:left-auto" />
+      )}
     </div>
   )
 }

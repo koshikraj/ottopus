@@ -63,7 +63,7 @@ export function TokenTable({ rows, chains, currency = 'usd' }: TokenTableProps) 
   }, [selectedId, selected])
   return (
     <>
-    <div className="mx-auto flex w-full max-w-[1120px] min-h-0 min-w-0 flex-1 flex-col px-4 tabular-nums sm:px-6" role="table" aria-label="Token holdings">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col px-4 tabular-nums sm:px-6" role="table" aria-label="Token holdings">
       <div role="row" className={`grid ${COLUMNS} ${GUTTER} shrink-0 pt-3 pb-2 text-[10px] font-semibold tracking-[0.06em] text-[var(--ot-text-2)] uppercase`}>
         <span role="columnheader">Asset</span>
         <span role="columnheader" className="text-right">Balance</span>
