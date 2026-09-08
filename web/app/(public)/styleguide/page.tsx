@@ -494,7 +494,7 @@ export default function Styleguide() {
         <div className="flex flex-col gap-6">
           <div className="flex flex-wrap items-end gap-8">
             <OttoLoader label="Otto is planning…" />
-            <OttoLoader pose="simulating" label="Simulating on a fork…" />
+            <OttoLoader pose="tapping" label="Simulating on a fork…" />
           </div>
           <div className="flex flex-wrap items-center gap-4">
             <BadgeLoader label="Otto is planning…" />
