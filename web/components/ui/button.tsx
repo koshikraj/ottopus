@@ -4,9 +4,23 @@ import { cn } from '@/lib/cn'
 type Variant = 'primary' | 'secondary' | 'ghost' | 'destructive' | 'danger-outline' | 'link'
 type Size = 'sm' | 'md' | 'lg'
 
+/**
+ * Pill is the default and what an action looks like. Block is the design's
+ * stacked-choice treatment — full width, text left, small radius — used where a
+ * dialog offers a list of ways to proceed rather than one thing to do.
+ */
+type Shape = 'pill' | 'block'
+
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: Variant
   size?: Size
+  shape?: Shape
+  /**
+   * Fills its container, text still centred. The design's mobile action
+   * treatment — distinct from shape="block", which is a choice in a list and
+   * reads left. An action says what it does in the middle of itself.
+   */
+  fullWidth?: boolean
 }
 
 /**
@@ -69,20 +83,29 @@ const DISABLED =
 export function buttonClasses({
   variant = 'secondary',
   size = 'md',
+  shape = 'pill',
+  fullWidth = false,
   className,
 }: {
   variant?: Variant
   size?: Size
+  shape?: Shape
+  fullWidth?: boolean
   className?: string
 } = {}): string {
   const isLink = variant === 'link'
+  const block = shape === 'block'
   return cn(
-    'inline-flex items-center justify-center gap-2 whitespace-nowrap',
-    isLink ? 'rounded-none' : 'rounded-[var(--ot-radius-pill)]',
+    'inline-flex items-center gap-2 whitespace-nowrap',
+    block ? 'w-full justify-start px-4 py-3 text-left' : 'justify-center text-center',
+    fullWidth && !block && 'w-full',
+    isLink ? 'rounded-none' : block ? 'rounded-[10px]' : 'rounded-[var(--ot-radius-pill)]',
     'font-ui font-medium leading-none cursor-pointer',
     'transition-colors duration-[var(--ot-dur-fast)] ease-[var(--ot-ease-out)]',
     VARIANTS[variant],
-    isLink ? LINK_SIZES[size] : SIZES[size],
+    // Block carries its own padding; the size scale only sets the type size.
+    isLink ? LINK_SIZES[size] : block ? '' : SIZES[size],
+    block && 'text-[14px] font-semibold',
     !isLink && DISABLED,
     isLink && 'disabled:cursor-not-allowed disabled:text-[var(--ot-text-4)]',
     className,
@@ -92,9 +115,17 @@ export function buttonClasses({
 export function Button({
   variant = 'secondary',
   size = 'md',
+  shape = 'pill',
+  fullWidth = false,
   className,
   type = 'button',
   ...props
 }: ButtonProps) {
-  return <button type={type} className={buttonClasses({ variant, size, className })} {...props} />
+  return (
+    <button
+      type={type}
+      className={buttonClasses({ variant, size, shape, fullWidth, className })}
+      {...props}
+    />
+  )
 }

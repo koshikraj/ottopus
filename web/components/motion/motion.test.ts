@@ -9,6 +9,8 @@ const read = (name: string) =>
 
 const WATER = read('water.css')
 const MOTION = read('motion.css')
+/** The loader family's keyframes are ambient too, and bound by the same gate. */
+const LOADERS = read('loaders.css')
 
 interface Rule {
   selectors: string[]
@@ -60,7 +62,7 @@ function rules(css: string, reducedMotion = false): Rule[] {
   return out
 }
 
-const ALL = [...rules(WATER), ...rules(MOTION)]
+const ALL = [...rules(WATER), ...rules(MOTION), ...rules(LOADERS)]
 
 /** Declares a keyframe animation, as opposed to merely tuning one. */
 const startsAnimation = (body: string) =>
@@ -139,6 +141,24 @@ describe('timing tokens stay inside the design bands', () => {
 
   it('sweeps slower than any loader, so a skeleton never reads as speed', () => {
     expect(seconds('--ot-dur-sweep')).toBeGreaterThan(seconds('--ot-dur-loader'))
+  })
+})
+
+describe('the dialog exit duration is not a guess', () => {
+  const dialogCss = read('dialog.css')
+
+  /**
+   * SignInDialog waits EXIT_MS before handing over to Privy's modal, because
+   * the dialog holds the top layer for its whole exit. If the CSS slows down
+   * and the constant does not, Privy opens behind it again.
+   */
+  it('matches the transition it waits for', () => {
+    const source = readFileSync(new URL('../ui/dialog.tsx', import.meta.url), 'utf8')
+    const declared = Number(/EXIT_MS = (\d+)/.exec(source)?.[1])
+    const token = Number(/--ot-dur-base:\s*(\d+)ms/.exec(read('tokens.css'))?.[1])
+
+    expect(declared).toBe(token)
+    expect(dialogCss).toContain('var(--ot-dur-base)')
   })
 })
 
