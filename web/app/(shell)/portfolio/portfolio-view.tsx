@@ -77,6 +77,30 @@ function ConnectedPortfolio() {
   )
 }
 
+/**
+ * Where the ambient layer goes on a view that keeps a rail: in the rail, which
+ * on a wide screen is the only open water there is.
+ */
+const RAIL_WATER = 'xl:left-auto xl:w-[352px]'
+
+/**
+ * The portfolio's water. Both tabs stand on it — the same canvas as the empty
+ * scene, fading in at the top so the section has no seam against the tab bar.
+ * The ambient layer sits behind whatever the caller puts on top, which is why
+ * children come last and carry their own `relative`.
+ */
+function Sea({ ambient, children }: { ambient?: string; children: React.ReactNode }) {
+  return (
+    <div className="ot-sea relative flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div className="ot-caustic" />
+      <div className="ot-caustic ot-caustic--b" />
+      <BubbleField pattern="canvas" className={ambient} />
+      <SeaLife className={ambient} />
+      {children}
+    </div>
+  )
+}
+
 interface FrameProps {
   wallets: Arm[]
   portfolioState?: PortfolioState
@@ -187,42 +211,36 @@ export function Frame({
           />
 
           {tab === 'wallets' ? (
-            <div className="ot-scroll flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto overscroll-contain px-5 py-4.5 sm:px-[26px]">
-              {wallets.map((arm) => {
-                const summary = selected?.arms.find((item) => item.walletId === arm.id)
-                const known = summary?.status === 'ok'
-                return (
-                  <ArmCard
-                    key={arm.id}
-                    arm={arm}
-                    value={known ? formatMoneyFlat(summary.total, selected?.currency) : null}
-                    share={known ? `${formatShare(summary.share)} of holdings`
-                      : balancesLoading ? 'Reading balance…' : 'Balance unavailable'}
-                  />
-                )
-              })}
-              {free > 0 ? (
-                <div className="flex flex-wrap items-center justify-between gap-3.5 rounded-[12px] border border-dashed border-[var(--ot-border-strong)] px-4 py-3.5">
-                  <span className="text-[13px] leading-[1.45] text-[var(--ot-text-2)]">
-                    {free} slot{free > 1 ? 's' : ''} free. Otto can route across every wallet you
-                    link.
-                  </span>
-                  <Button variant="secondary" size="sm" onClick={onLink} disabled={!onLink}>
-                    Link wallet
-                  </Button>
-                </div>
-              ) : null}
-            </div>
+            <Sea>
+              <div className="ot-scroll relative flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto overscroll-contain px-5 py-4.5 sm:px-[26px]">
+                {wallets.map((arm) => {
+                  const summary = selected?.arms.find((item) => item.walletId === arm.id)
+                  const known = summary?.status === 'ok'
+                  return (
+                    <ArmCard
+                      key={arm.id}
+                      arm={arm}
+                      value={known ? formatMoneyFlat(summary.total, selected?.currency) : null}
+                      share={known ? `${formatShare(summary.share)} of holdings`
+                        : balancesLoading ? 'Reading balance…' : 'Balance unavailable'}
+                    />
+                  )
+                })}
+                {free > 0 ? (
+                  <div className="flex flex-wrap items-center justify-between gap-3.5 rounded-[12px] border border-dashed border-[var(--ot-border-strong)] bg-[var(--ot-card)]/60 px-4 py-3.5">
+                    <span className="text-[13px] leading-[1.45] text-[var(--ot-text-2)]">
+                      {free} slot{free > 1 ? 's' : ''} free. Otto can route across every wallet you
+                      link.
+                    </span>
+                    <Button variant="secondary" size="sm" onClick={onLink} disabled={!onLink}>
+                      Link wallet
+                    </Button>
+                  </div>
+                ) : null}
+              </div>
+            </Sea>
           ) : (
-            /* The same water as the empty scene, for the same reason: this is
-               the page's canvas. The rows float on it as their own cards, so the
-               ambient layer stays in the margins and the gaps between them —
-               never under a number someone is about to act on. */
-            <div className="ot-token-sea relative flex min-h-0 flex-1 flex-col overflow-hidden">
-              <div className="ot-caustic" />
-              <div className="ot-caustic ot-caustic--b" />
-              <BubbleField pattern="canvas" className="xl:left-auto xl:w-[352px]" />
-              <SeaLife className="xl:left-auto xl:w-[352px]" />
+            <Sea ambient={RAIL_WATER}>
               <div className="relative flex min-h-0 flex-1">
                 <div className="flex min-h-0 min-w-0 flex-1 flex-col">
                   {balancesLoading ? <SkeletonShelf rows={3} avatar={36} className="m-4 sm:m-[22px]" /> : hasReading && selected ? (
@@ -241,7 +259,7 @@ export function Frame({
                   <FirstIntentNudge />
                 </aside>
               </div>
-            </div>
+            </Sea>
           )}
         </>
       ) : loading ? (
