@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { Suspense, useEffect, type ReactNode } from 'react'
 import { Lockup } from '@/components/brand'
 import { BubbleField, FullPageLoader } from '@/components/motion'
+import { safeNext } from '@/lib/safe-next'
 import { usePrivyAvailable } from './privy-provider'
 import { SignInPanel } from './sign-in-panel'
 
@@ -20,7 +21,8 @@ import { SignInPanel } from './sign-in-panel'
 function Live() {
   const { ready, authenticated } = usePrivy()
   const router = useRouter()
-  const next = useSearchParams().get('next') ?? '/portfolio'
+  // Anyone can write this parameter into a link and send it to someone.
+  const next = safeNext(useSearchParams().get('next'))
   const returning = ready && authenticated
 
   useEffect(() => {
