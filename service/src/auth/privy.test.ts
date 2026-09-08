@@ -159,6 +159,21 @@ describe('identity tokens carry a name, never a wallet', () => {
     expect(read.name).toBe('Ada Lovelace')
   })
 
+  /** Privy does not pin the claim's shape, so the reader takes what it finds. */
+  it('reads a name split across first and last', async () => {
+    const read = await auth().readIdentity(
+      await identity([{ type: 'google_oauth', first_name: 'Grace', last_name: 'Hopper' }]),
+    )
+    expect(read.name).toBe('Grace Hopper')
+  })
+
+  it('falls back to a username when there is no name at all', async () => {
+    const read = await auth().readIdentity(
+      await identity([{ type: 'github_oauth', username: 'gracehopper' }]),
+    )
+    expect(read.name).toBe('gracehopper')
+  })
+
   it('rejects an identity token signed by someone else', async () => {
     const forged = await new jose.SignJWT({ linked_accounts: [GOOGLE] })
       .setProtectedHeader({ alg: 'ES256' })

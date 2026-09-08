@@ -97,6 +97,20 @@ interface LinkedAccount {
   address?: string
   email?: string
   name?: string
+  first_name?: string
+  last_name?: string
+  username?: string
+}
+
+/**
+ * A person's name, however the provider chose to spell it. Privy calls the
+ * claim "a lightweight version of linkedAccounts" without pinning the shape, so
+ * this reads the plausible spellings rather than betting on one.
+ */
+function nameOf(account: LinkedAccount): string | undefined {
+  if (account.name) return account.name
+  const full = [account.first_name, account.last_name].filter(Boolean).join(' ').trim()
+  return full || account.username || undefined
 }
 
 /** Privy has encoded this as a JSON string and as an array, depending on age. */
@@ -182,15 +196,12 @@ export function createPrivyAuth({ appId, verificationKey }: PrivyVerifierConfig)
 
       // Only the accounts that carry a person's name or address for mail. A
       // wallet entry is skipped even though it is sitting right there.
-      const named = accounts.find((a) => a.type !== 'wallet' && a.name)
-      const mailed = accounts.find((a) => a.type !== 'wallet' && a.email)
-      const emailAccount = accounts.find((a) => a.type === 'email' && a.address)
+      const people = accounts.filter((a) => a.type !== 'wallet')
+      const named = people.map(nameOf).find(Boolean)
+      const mailed = people.find((a) => a.email)?.email
+      const emailAccount = accounts.find((a) => a.type === 'email' && a.address)?.address
 
-      return {
-        did,
-        name: named?.name,
-        email: mailed?.email ?? emailAccount?.address,
-      }
+      return { did, name: named, email: mailed ?? emailAccount }
     },
   }
 }
