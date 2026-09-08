@@ -1,22 +1,41 @@
 'use client'
 
 import { useState } from 'react'
+import { usePrivyAvailable } from '@/components/auth'
 import { Otto } from '@/components/brand'
 import { SkeletonShelf } from '@/components/motion/loaders'
 import { Button, Callout, EmptyState } from '@/components/ui'
-import { MAX_ARMS, useWallets } from './use-wallets'
+import { MAX_ARMS } from './naming'
+import { useWallets } from './use-wallets'
 import { LinkWalletDialog } from './link-wallet-dialog'
 import { WalletList } from './wallet-list'
 
 /**
- * Linked wallets, end to end: the list, the dialog, and the two failure modes
+ * Linked wallets, end to end: the list, the dialog, and the failure modes
  * worth naming.
  *
  * Used on Settings, and by the Portfolio empty state. Both need the same
  * behaviour, and a second copy of the sync effect would mean two components
  * racing to reconcile the same account.
+ *
+ * Split in two because Privy's hooks throw outside their provider, and the
+ * provider does not mount without a valid app id. The rest of the app stays
+ * up in that case on purpose — a typo in one environment variable should not
+ * blank the settings page — so this has to check before it calls a hook, and a
+ * hook cannot be called conditionally. Same shape as RequireSession.
  */
 export function WalletsPanel() {
+  return usePrivyAvailable() ? (
+    <ConnectedPanel />
+  ) : (
+    <Callout severity="caution" title="Sign-in isn’t configured">
+      Wallets need Privy, and this deployment has no valid app id. Nothing is wrong with your
+      account.
+    </Callout>
+  )
+}
+
+function ConnectedPanel() {
   const { state, linkWallet, linking, linkError, addWatchOnly, unlink } = useWallets()
   const [open, setOpen] = useState(false)
 

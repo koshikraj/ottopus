@@ -3,9 +3,7 @@
 import { useState } from 'react'
 import { ApiError } from '@/lib/api'
 import { Button, Callout, Dialog, Input } from '@/components/ui'
-
-/** 20 bytes of hex. Checked here only to say so before a round trip. */
-const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/
+import { ADDRESS_RE, LINK_ERRORS } from './naming'
 
 export interface LinkWalletDialogProps {
   open: boolean
@@ -17,12 +15,6 @@ export interface LinkWalletDialogProps {
   /** Arms already in use, so the dialog can say when there is no room. */
   used: number
   max: number
-}
-
-const MESSAGE_FOR: Record<string, string> = {
-  already_linked: 'That address is already one of your arms.',
-  too_many_wallets: 'All eight arms are full. Unlink one first.',
-  invalid_address: 'That does not look like a wallet address.',
 }
 
 /**
@@ -77,7 +69,7 @@ export function LinkWalletDialog({
       close()
     } catch (err) {
       const code = err instanceof ApiError ? err.code : undefined
-      setError((code && MESSAGE_FOR[code]) ?? 'That address could not be added.')
+      setError((code && LINK_ERRORS[code]) ?? 'That address could not be added.')
     } finally {
       setPasting(false)
     }

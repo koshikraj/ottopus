@@ -30,12 +30,6 @@ import {
  * linked rather than the list from before it.
  */
 
-/**
- * Otto has eight arms. The service enforces this — the copy here only has to
- * agree with it, and a mismatch would promise room that does not exist.
- */
-export const MAX_ARMS = 8
-
 export type WalletsState =
   | { status: 'loading' }
   | { status: 'ready'; wallets: Arm[]; overflow: string[] }

@@ -3,25 +3,7 @@
 import { useState } from 'react'
 import { AddressChip, Badge, Button, Dialog } from '@/components/ui'
 import type { Arm } from '@/lib/api'
-
-/** Wallet client to something a person recognises. */
-const WALLET_NAMES: Readonly<Record<string, string>> = {
-  metamask: 'MetaMask',
-  rabby: 'Rabby',
-  coinbase_wallet: 'Coinbase Wallet',
-  rainbow: 'Rainbow',
-  phantom: 'Phantom',
-  zerion: 'Zerion',
-  safe: 'Safe',
-  walletconnect: 'WalletConnect',
-  watch_only: 'Watch-only',
-  unknown: 'Wallet',
-}
-
-export function armName(arm: Arm): string {
-  if (arm.label) return arm.label
-  return WALLET_NAMES[arm.walletType] ?? arm.walletType.replace(/_/g, ' ')
-}
+import { armName } from './naming'
 
 export interface WalletListProps {
   wallets: Arm[]
