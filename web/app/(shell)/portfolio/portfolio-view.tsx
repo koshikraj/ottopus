@@ -187,7 +187,7 @@ export function Frame({
           />
 
           {tab === 'wallets' ? (
-            <div className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto overscroll-contain px-5 py-4.5 sm:px-[26px]">
+            <div className="ot-scroll flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto overscroll-contain px-5 py-4.5 sm:px-[26px]">
               {wallets.map((arm) => {
                 const summary = selected?.arms.find((item) => item.walletId === arm.id)
                 const known = summary?.status === 'ok'
@@ -235,7 +235,7 @@ export function Frame({
                     no room for a rail, so it stays the overlay it was — now
                     anchored to this section rather than to the whole page. */}
                 <aside aria-label="Suggestions" className={cn(
-                  'absolute right-3 bottom-3 left-3 z-20 max-h-[45dvh] overflow-y-auto rounded-2xl bg-[var(--ot-card)] shadow-lg sm:left-auto sm:w-[400px]',
+                  'ot-scroll absolute right-3 bottom-3 left-3 z-20 max-h-[45dvh] overflow-y-auto rounded-2xl bg-[var(--ot-card)] shadow-lg sm:left-auto sm:w-[400px]',
                   'xl:static xl:z-auto xl:max-h-none xl:w-[352px] xl:shrink-0 xl:rounded-none xl:bg-transparent xl:pt-1 xl:shadow-none',
                 )}>
                   <FirstIntentNudge />
