@@ -1,7 +1,7 @@
 'use client'
 
 import { useSearchParams } from 'next/navigation'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { usePrivyAvailable } from '@/components/auth'
 import { Otto } from '@/components/brand'
 import { BubbleField } from '@/components/motion'
@@ -89,7 +89,7 @@ interface FrameProps {
   dialog?: React.ReactNode
 }
 
-function Frame({
+export function Frame({
   wallets,
   portfolioState,
   onRefresh,
@@ -103,12 +103,12 @@ function Frame({
   const [network, setNetwork] = useState<string | null>(null)
   const portfolio = portfolioState ? portfolioOf(portfolioState) : null
   const selectedNetwork = portfolio?.chains.some((chain) => chain.chainId === network) ? network : null
-  const selected = portfolio ? selectPortfolio(portfolio, selectedNetwork) : null
+  const selected = useMemo(() => portfolio ? selectPortfolio(portfolio, selectedNetwork) : null, [portfolio, selectedNetwork])
   const missing = unreadArms(portfolio)
   const hasReading = !!portfolio?.arms.some((arm) => arm.status === 'ok')
   const money = selected && hasReading ? formatMoney(selected.total, selected.currency) : null
   const delta = selected && hasReading
-    ? formatDelta(selected.change1d, selected.total, selected.currency)
+    ? formatDelta(selected.change1d, selected.gross, selected.currency)
     : null
   const balanceFailure = portfolioState?.status === 'failed' ? portfolioFailureText(portfolioState.reason) : null
   const balancesLoading = wallets.length > 0 && (!portfolioState || portfolioState.status === 'loading')
@@ -116,7 +116,7 @@ function Frame({
   const free = MAX_ARMS - wallets.length
 
   return (
-    <>
+    <div data-portfolio className="relative flex min-h-0 flex-1 flex-col [&>*]:shrink-0">
       <PageHeader
         title="Portfolio"
         eyebrow={
@@ -184,7 +184,7 @@ function Frame({
           />
 
           {tab === 'wallets' ? (
-            <div className="flex flex-1 flex-col gap-2.5 px-5 py-4.5 sm:px-[26px]">
+            <div className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto overscroll-contain px-5 py-4.5 sm:px-[26px]">
               {wallets.map((arm) => {
                 const summary = selected?.arms.find((item) => item.walletId === arm.id)
                 const known = summary?.status === 'ok'
@@ -211,7 +211,7 @@ function Frame({
               ) : null}
             </div>
           ) : (
-            <div className="flex flex-1 flex-col">
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
               {balancesLoading ? <SkeletonShelf rows={3} /> : hasReading && selected ? (
                 <TokenTable rows={selected.assets} chains={selected.chains} currency={selected.currency} />
               ) : <p className="px-5 py-5 text-[var(--ot-text-2)]">Balances could not be read. Refresh to try again.</p>}
@@ -242,7 +242,7 @@ function Frame({
       )}
 
       {dialog}
-      <FirstIntentNudge />
-    </>
+      <FirstIntentNudge className="absolute right-3 bottom-3 left-3 z-20 max-h-[45dvh] overflow-y-auto rounded-2xl bg-[var(--ot-card)] shadow-lg sm:left-auto" />
+    </div>
   )
 }

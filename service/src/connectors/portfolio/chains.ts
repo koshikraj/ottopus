@@ -31,10 +31,9 @@ export function evmChainIdOf(externalId: string | null | undefined): number | nu
   if (!externalId) return null
   const raw = externalId.trim()
 
-  const hex = /^0[xX][0-9a-fA-F]+$/.test(raw)
-  if (!hex && !/^[0-9]+$/.test(raw)) return null
+  if (!/^0[xX][0-9a-fA-F]+$/.test(raw) && !/^[0-9]+$/.test(raw)) return null
 
-  const n = Number(hex ? raw : `${raw}`)
+  const n = Number(raw)
   if (!Number.isSafeInteger(n) || n <= 0) return null
   return n
 }

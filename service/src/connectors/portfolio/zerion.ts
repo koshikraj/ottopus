@@ -77,7 +77,7 @@ interface ZerionPosition {
     protocol?: string | null
     group_id?: string | null
     fungible_info?: ZerionFungibleInfo
-    flags?: { displayable?: boolean; is_trash?: boolean }
+    flags?: { displayable?: boolean }
     application_metadata?: { name?: string }
   }
   relationships?: {
@@ -160,6 +160,7 @@ export class ZerionPortfolioConnector implements PortfolioConnector {
       raw.push(...(body.data ?? []))
       const next = body.links?.next
       if (!next || next === url) break
+      if (page === MAX_PAGES - 1) throw new PortfolioError('unavailable', 'zerion returned more positions than the page limit')
       url = next
     }
 
@@ -373,7 +374,7 @@ export function toPosition(item: ZerionPosition, chains: ChainMap): AccountPosit
   const amount = attributes.quantity?.int
   const decimals = attributes.quantity?.decimals
   if (typeof amount !== 'string' || !/^[0-9]+$/.test(amount)) return null
-  if (!Number.isInteger(decimals) || decimals! < 0) return null
+  if (!Number.isInteger(decimals) || decimals! < 0 || decimals! > 36) return null
 
   const protocol = attributes.protocol ?? attributes.application_metadata?.name ?? null
   const positionType = positionTypeOf(attributes.position_type, protocol)
@@ -385,13 +386,17 @@ export function toPosition(item: ZerionPosition, chains: ChainMap): AccountPosit
   const sign = positionType === 'loan' ? -1 : 1
   const signed = (value: number | null | undefined): number | null =>
     typeof value === 'number' && Number.isFinite(value) ? sign * Math.abs(value) : null
+  const change = (value: number | null | undefined): number | null =>
+    typeof value === 'number' && Number.isFinite(value) ? sign * value : null
 
   return {
     assetId,
     chainId,
     asset: {
-      familyId: (item.relationships?.fungible?.data?.id ?? fungible.id)
-        ? `zerion:${item.relationships?.fungible?.data?.id ?? fungible.id}` : null,
+      familyId: (() => {
+        const id = item.relationships?.fungible?.data?.id ?? fungible.id
+        return id ? `zerion:${id}` : null
+      })(),
       symbol: fungible.symbol ?? '',
       name: fungible.name ?? fungible.symbol ?? '',
       decimals: decimals!,
@@ -405,7 +410,7 @@ export function toPosition(item: ZerionPosition, chains: ChainMap): AccountPosit
       typeof attributes.price === 'number' && Number.isFinite(attributes.price)
         ? attributes.price
         : null,
-    change1d: signed(attributes.changes?.absolute_1d),
+    change1d: change(attributes.changes?.absolute_1d),
     protocol,
     groupId: attributes.group_id ?? null,
   }

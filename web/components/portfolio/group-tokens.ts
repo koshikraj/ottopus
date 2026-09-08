@@ -41,7 +41,7 @@ export function groupTokens(rows: readonly AssetRow[]): TokenGroup[] {
       value: members.reduce((value, row) => value + row.value, 0),
       share: members.reduce((value, row) => value + row.share, 0),
       priced: priced(members),
-      holdings: members.flatMap((row) => row.holdings),
+      holdings: members.flatMap((row) => row.holdings.map((holding) => ({ ...holding, amount: amountOf(row, 'amount').toString() }))),
       networks: networkIds.map((chainId) => {
         const items = members.filter((row) => row.chainId === chainId)
         return {
