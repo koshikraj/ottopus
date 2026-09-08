@@ -116,7 +116,7 @@ describe('access token verification', () => {
   })
 })
 
-describe('identity tokens carry a name, never a wallet', () => {
+describe('identity tokens carry a name and the linked wallets', () => {
   const identity = async (accounts: unknown) =>
     new jose.SignJWT({ linked_accounts: accounts })
       .setProtectedHeader({ alg: 'ES256' })
@@ -128,21 +128,72 @@ describe('identity tokens carry a name, never a wallet', () => {
       .sign(key.privateKey)
 
   const GOOGLE = { type: 'google_oauth', email: 'ada@example.com', name: 'Ada Lovelace' }
-  const WALLET = { type: 'wallet', address: '0xdeadbeef', chain_type: 'ethereum' }
+  const WALLET = {
+    type: 'wallet',
+    address: '0xDeAdBeEf00000000000000000000000000000000',
+    chain_type: 'ethereum',
+    wallet_client_type: 'metamask',
+    connector_type: 'injected',
+    first_verified_at: '2026-09-01T10:00:00.000Z',
+  }
 
   it('reads the name and email a social login carries', async () => {
     const read = await auth().readIdentity(await identity([GOOGLE, WALLET]))
     expect(read).toMatchObject({ did: DID, name: 'Ada Lovelace', email: 'ada@example.com' })
   })
 
+  it('reads the linked wallets', async () => {
+    const read = await auth().readIdentity(await identity([GOOGLE, WALLET]))
+    expect(read.wallets).toEqual([
+      {
+        address: '0xdeadbeef00000000000000000000000000000000',
+        walletClientType: 'metamask',
+        connectorType: 'injected',
+        chainType: 'ethereum',
+        firstVerifiedAt: '2026-09-01T10:00:00.000Z',
+        latestVerifiedAt: undefined,
+      },
+    ])
+  })
+
   /**
-   * The whole reason this is a separate method. A wallet address sitting in a
-   * signed token is still not a proven wallet — that is #7's ownership
-   * challenge, and reading one here would route around it.
+   * Every comparison downstream is lowercase — the address column carries a
+   * check constraint saying so. Normalising at the boundary means no caller
+   * has to remember.
    */
-  it('never returns a wallet address, even though one is right there', async () => {
+  it('lowercases the address', async () => {
     const read = await auth().readIdentity(await identity([WALLET]))
-    expect(JSON.stringify(read)).not.toContain('0xdeadbeef')
+    expect(read.wallets[0]?.address).toBe('0xdeadbeef00000000000000000000000000000000')
+  })
+
+  /** Older tokens date the link in epoch seconds rather than ISO. */
+  it('reads a numeric verification time', async () => {
+    const read = await auth().readIdentity(
+      await identity([{ ...WALLET, first_verified_at: 1788000000 }]),
+    )
+    expect(read.wallets[0]?.firstVerifiedAt).toBe(new Date(1788000000 * 1000).toISOString())
+  })
+
+  it('accepts the camelCase spelling the SDK types use', async () => {
+    const read = await auth().readIdentity(
+      await identity([
+        { type: 'wallet', address: '0xabc', walletClientType: 'rabby', chainType: 'ethereum' },
+      ]),
+    )
+    expect(read.wallets[0]).toMatchObject({ walletClientType: 'rabby', chainType: 'ethereum' })
+  })
+
+  it('has no wallets when none are linked', async () => {
+    const read = await auth().readIdentity(await identity([GOOGLE]))
+    expect(read.wallets).toEqual([])
+  })
+
+  /**
+   * A wallet's `address` field is an account, not an inbox. Treating a wallet
+   * entry as a person would put "0xdead…" in the name or email column.
+   */
+  it('never reads a person out of a wallet entry', async () => {
+    const read = await auth().readIdentity(await identity([WALLET]))
     expect(read.name).toBeUndefined()
     expect(read.email).toBeUndefined()
   })
@@ -200,5 +251,57 @@ describe('bearerToken', () => {
     expect(bearerToken('abc.def.ghi')).toBeNull()
     expect(bearerToken(undefined)).toBeNull()
     expect(bearerToken('')).toBeNull()
+  })
+})
+
+/**
+ * The identity header takes a token the caller chose, and every Privy token
+ * verifies against the same key for the same issuer and audience. So the
+ * question "is this actually an identity token" has to be answered from the
+ * claims, and `linked_accounts` is the only thing that answers it.
+ */
+describe('a token that is not an identity token', () => {
+  const bare = async (claims: Record<string, unknown>) =>
+    new jose.SignJWT(claims)
+      .setProtectedHeader({ alg: 'ES256' })
+      .setSubject(DID)
+      .setAudience(APP_ID)
+      .setIssuer('privy.io')
+      .setIssuedAt()
+      .setExpirationTime('1h')
+      .sign(key.privateKey)
+
+  /**
+   * The dangerous one. An access token has no linked_accounts claim, verifies
+   * perfectly, and carries the right subject. Reporting [] for it would let it
+   * assert "this user has no wallets" — which the sync route acts on by
+   * unlinking every proved wallet the person has.
+   */
+  it('reports undefined wallets for an access token, not an empty list', async () => {
+    const read = await auth().readIdentity(await bare({}))
+    expect(read.did).toBe(DID)
+    expect(read.wallets).toBeUndefined()
+    expect(read.wallets).not.toEqual([])
+  })
+
+  it.each([
+    ['a claim that is not an array', { linked_accounts: { type: 'wallet' } }],
+    ['a string that is not JSON', { linked_accounts: 'not json' }],
+    ['JSON that is not an array', { linked_accounts: '{"type":"wallet"}' }],
+    ['an explicitly null claim', { linked_accounts: null }],
+    ['a numeric claim', { linked_accounts: 7 }],
+  ])('reports undefined for %s', async (_label, claims) => {
+    expect((await auth().readIdentity(await bare(claims))).wallets).toBeUndefined()
+  })
+
+  /** A real identity token for someone with nothing linked still says so. */
+  it('still reports an empty list when the claim is present and empty', async () => {
+    const read = await auth().readIdentity(await bare({ linked_accounts: [] }))
+    expect(read.wallets).toEqual([])
+  })
+
+  it('accepts the stringified empty array Privy also sends', async () => {
+    const read = await auth().readIdentity(await bare({ linked_accounts: '[]' }))
+    expect(read.wallets).toEqual([])
   })
 })
