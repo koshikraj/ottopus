@@ -24,6 +24,11 @@ export function agentRoutes(db: Db, session: MiddlewareHandler): Hono {
         id: grant.id,
         name: grant.clientName,
         uri: grant.clientUri,
+        // The callbacks it registered. Not secret — they are the agent's own,
+        // and the person approving the grant already saw one on the consent
+        // screen. They are also the only thing we know about an agent that the
+        // agent did not simply assert.
+        redirectUris: grant.redirectUris,
         grantedAt: grant.grantedAt.toISOString(),
         lastUsedAt: grant.lastUsedAt?.toISOString() ?? null,
         revokedAt: grant.revokedAt?.toISOString() ?? null,
