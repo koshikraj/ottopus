@@ -14,6 +14,7 @@ import {
   MAX_ARMS,
   armsOf,
   failureText,
+  useWalletIcons,
   useWallets,
   type WalletsFailure,
 } from '@/components/wallets'
@@ -50,10 +51,14 @@ function ConnectedPortfolio() {
 
   const wallets = armsOf(state)
   const portfolio = usePortfolio(wallets, state.status !== 'loading')
+  // Privy's hook, so it has to be read here rather than down in ArmCard, which
+  // also renders on the styleguide with no Privy configured at all.
+  const walletIcons = useWalletIcons()
 
   return (
     <Frame
       wallets={wallets}
+      walletIcons={walletIcons}
       portfolioState={portfolio.state}
       onRefresh={portfolio.refresh}
       loading={state.status === 'loading'}
@@ -103,6 +108,8 @@ function Sea({ ambient, children }: { ambient?: string; children: React.ReactNod
 
 interface FrameProps {
   wallets: Arm[]
+  /** Wallet logos by lowercased address, for the arms connected in this browser. */
+  walletIcons?: ReadonlyMap<string, string>
   portfolioState?: PortfolioState
   onRefresh?: () => void
   loading?: boolean
@@ -116,6 +123,7 @@ interface FrameProps {
 
 export function Frame({
   wallets,
+  walletIcons,
   portfolioState,
   onRefresh,
   loading = false,
@@ -220,6 +228,7 @@ export function Frame({
                     <ArmCard
                       key={arm.id}
                       arm={arm}
+                      icon={walletIcons?.get(arm.address.toLowerCase())}
                       value={known ? formatMoneyFlat(summary.total, selected?.currency) : null}
                       share={known ? `${formatShare(summary.share)} of holdings`
                         : balancesLoading ? 'Reading balance…' : 'Balance unavailable'}
