@@ -59,6 +59,7 @@ interface ZerionImplementation {
 }
 
 interface ZerionFungibleInfo {
+  id?: string
   name?: string
   symbol?: string
   icon?: { url?: string | null } | null
@@ -80,6 +81,7 @@ interface ZerionPosition {
     application_metadata?: { name?: string }
   }
   relationships?: {
+    fungible?: { data?: { id?: string } }
     chain?: { data?: { id?: string } }
   }
 }
@@ -104,6 +106,15 @@ export class ZerionPortfolioConnector implements PortfolioConnector {
    * the result is what stops eight arms loading it eight times in parallel.
    */
   private chains: Promise<ChainMap> | null = null
+  private loadedChains: ChainMap | null = null
+
+  chainName(chainId: string): string | null {
+    return this.loadedChains?.nameOf(chainId) ?? null
+  }
+
+  chainIcon(chainId: string): string | null {
+    return this.loadedChains?.iconOf(chainId) ?? null
+  }
 
   constructor(options: ZerionOptions) {
     if (!options.apiKey) {
@@ -172,7 +183,7 @@ export class ZerionPortfolioConnector implements PortfolioConnector {
 
   private async loadChains(): Promise<ChainMap> {
     const body = await this.get<
-      ZerionListResponse<{ id?: string; attributes?: { name?: string; external_id?: string } }>
+      ZerionListResponse<{ id?: string; attributes?: { name?: string; external_id?: string; icon?: { url?: string | null } } }>
     >(`${this.baseUrl}/chains/`)
 
     const entries: ChainEntry[] = []
@@ -182,13 +193,15 @@ export class ZerionPortfolioConnector implements PortfolioConnector {
         id: item.id,
         name: item.attributes?.name ?? item.id,
         externalId: item.attributes?.external_id,
+        iconUrl: item.attributes?.icon?.url ?? null,
       })
     }
 
     if (entries.length === 0) {
       throw new PortfolioError('unavailable', 'zerion returned an empty chain list')
     }
-    return new ChainMap(entries)
+    this.loadedChains = new ChainMap(entries)
+    return this.loadedChains
   }
 
   private async get<T>(url: string): Promise<T> {
@@ -377,6 +390,8 @@ export function toPosition(item: ZerionPosition, chains: ChainMap): AccountPosit
     assetId,
     chainId,
     asset: {
+      familyId: (item.relationships?.fungible?.data?.id ?? fungible.id)
+        ? `zerion:${item.relationships?.fungible?.data?.id ?? fungible.id}` : null,
       symbol: fungible.symbol ?? '',
       name: fungible.name ?? fungible.symbol ?? '',
       decimals: decimals!,

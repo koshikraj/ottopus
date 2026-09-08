@@ -155,6 +155,8 @@ export interface Holding {
 }
 
 export interface AssetInfo {
+  /** Provider-scoped identity shared by deployments of the same token across chains. */
+  familyId?: string | null
   symbol: string
   name: string
   decimals: number
@@ -181,6 +183,7 @@ export interface AssetRow {
 }
 
 export interface ChainRow {
+  iconUrl?: string | null
   chainId: string
   name: string
   value: number

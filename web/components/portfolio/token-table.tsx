@@ -1,153 +1,121 @@
-import { Chip } from '@/components/ui'
-import type { AssetRow, Portfolio } from '@/lib/api'
+import type { Portfolio, AssetRow } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { formatAmount, formatMoneyFlat, formatShare } from '@/lib/format'
+import { AssetIcon } from './asset-icon'
+import { DetailPopover } from './detail-popover'
+import { compactBalance, groupTokens, type TokenGroup } from './group-tokens'
 
-const COLUMNS =
-  'grid-cols-[minmax(120px,1.5fr)_110px_110px_70px_110px]'
+const COLUMNS = 'grid-cols-[minmax(0,1fr)_minmax(0,0.7fr)_minmax(0,0.65fr)] lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,0.6fr)_minmax(0,1fr)]'
 
 export interface TokenTableProps {
   rows: readonly AssetRow[]
   chains: Portfolio['chains']
   currency?: string
-  /** Set while the first read is in flight, to keep the header from flashing. */
   loading?: boolean
 }
 
-/** "In Aave V3", "Staked" — what part of a balance is not loose. */
-function heldAs(row: AssetRow): string | null {
-  const away = row.holdings.filter((h) => h.positionType !== 'wallet')
-  if (away.length === 0) return null
-
-  if (row.holdings.every((h) => h.positionType === 'loan')) return 'Borrowed'
-
-  const protocols = [...new Set(away.map((h) => h.protocol).filter(Boolean))]
+function heldAs(row: TokenGroup): string | null {
+  const away = row.holdings.filter((holding) => holding.positionType !== 'wallet')
+  if (!away.length) return null
+  if (row.holdings.every((holding) => holding.positionType === 'loan')) return 'Borrowed'
+  const protocols = [...new Set(away.map((holding) => holding.protocol).filter(Boolean))]
   if (protocols.length === 1) return `In ${protocols[0]}`
-  if (protocols.length > 1) return `In ${protocols.length} protocols`
-
-  const types = [...new Set(away.map((h) => h.positionType))]
-  return types.length === 1 ? TYPE_LABELS[types[0]!] : 'In protocols'
+  return protocols.length > 1 ? `In ${protocols.length} protocols` : 'In protocols'
 }
 
-const TYPE_LABELS: Record<string, string> = {
-  deposit: 'Deposited',
-  loan: 'Borrowed',
-  locked: 'Locked',
-  staked: 'Staked',
-  reward: 'Rewards',
-  investment: 'Invested',
-  wallet: 'In wallet',
-}
+const exactAmount = (amount: string, decimals: number) =>
+  formatAmount(amount, decimals, { maxFractionDigits: decimals })
 
-function Icon({ row }: { row: AssetRow }) {
-  if (row.asset.iconUrl) {
-    return (
-      // Not next/image: these are third-party CDN URLs from a pricing provider,
-      // an unbounded set no remotePatterns config can enumerate honestly.
-      // eslint-disable-next-line @next/next/no-img-element
-      <img
-        src={row.asset.iconUrl}
-        alt=""
-        width={34}
-        height={34}
-        loading="lazy"
-        className="h-[34px] w-[34px] flex-none rounded-full bg-[var(--ot-surface-3)]"
-      />
-    )
-  }
+function Balance({ amount, decimals, symbol, label, subdued = false }: {
+  amount: string; decimals: number; symbol: string; label: string; subdued?: boolean
+}) {
+  const exact = exactAmount(amount, decimals)
+  const compact = compactBalance(amount, decimals) || formatAmount(amount, decimals, { maxFractionDigits: 4 })
   return (
-    <span
-      aria-hidden
-      className={cn(
-        'flex h-[34px] w-[34px] flex-none items-center justify-center rounded-full',
-        'bg-[var(--ot-surface-3)] font-display text-[13px] font-bold text-[var(--ot-text-2)]',
-      )}
-    >
-      {(row.asset.symbol || '?').charAt(0).toUpperCase()}
-    </span>
+    <DetailPopover label={`${label}: ${exact} ${symbol}`} className="block w-full text-right"
+      detail={<><p className="mb-1 text-[var(--ot-text-3)]">{label}</p><p className="break-all font-mono leading-relaxed">{exact} {symbol}</p></>}>
+      <span className={cn('block truncate font-mono text-[12px] tabular-nums sm:text-[13px]', subdued ? 'text-[var(--ot-text-2)]' : 'font-medium')}>{compact}</span>
+    </DetailPopover>
   )
 }
 
-/**
- * The tokens view: one row per asset per chain, merged across every arm.
- *
- * Merged by CAIP-19 rather than by symbol, so USDC on Base and USDC on
- * Ethereum stay two rows — they are two different contracts, and a plan can
- * only spend one of them at a time.
- *
- * Balances render from base units through `formatAmount`, never from a float.
- * The value column is fiat and rounds, which is fine; the balance column is the
- * one a person checks against their wallet.
- */
 export function TokenTable({ rows, chains, currency = 'usd', loading = false }: TokenTableProps) {
-  const names = new Map(chains.map((c) => [c.chainId, c.name]))
-
+  const networks = new Map(chains.map((chain) => [chain.chainId, chain]))
+  const tokens = groupTokens(rows)
   return (
-    <div className="flex flex-col overflow-x-auto px-5 pb-5 tabular-nums sm:px-[26px]">
-      <div className={`min-w-[620px] grid ${COLUMNS} gap-3.5 py-3 text-[12px] text-[var(--ot-text-3)]`}>
-        <span>Asset</span>
-        <span className="text-right">Balance</span>
-        <span className="text-right">Spendable</span>
-        <span className="text-right">Share</span>
-        <span className="text-right">Value</span>
+    <div className="min-w-0 px-5 pb-5 tabular-nums sm:px-[26px]" role="table" aria-label="Token holdings">
+      <div role="row" className={`grid ${COLUMNS} gap-3 py-3.5 text-[11px] font-medium text-[var(--ot-text-3)] sm:gap-5`}>
+        <span role="columnheader">Asset</span>
+        <span role="columnheader" className="text-right">Balance</span>
+        <span role="columnheader" className="hidden text-right lg:block">Spendable</span>
+        <span role="columnheader" className="hidden text-right lg:block">Share</span>
+        <span role="columnheader" className="text-right">Value</span>
       </div>
-
-      {rows.map((row) => {
-        const held = heldAs(row)
-        const chain = names.get(row.chainId) ?? row.chainId
-
+      {tokens.map((token) => {
+        const held = heldAs(token)
+        const symbol = token.asset.symbol || token.asset.name
         return (
-          <div
-            key={row.assetId}
-            className={`min-w-[620px] grid ${COLUMNS} items-center gap-3.5 border-t border-[var(--ot-border)] py-3`}
-          >
-            <div className="flex min-w-0 items-center gap-3">
-              <Icon row={row} />
-              <div className="flex min-w-0 flex-col gap-1">
-                <span className="flex items-center gap-2 truncate text-[14px] font-semibold">
-                  {row.asset.symbol || row.asset.name}
-                </span>
-                <span className="flex flex-wrap items-center gap-1.5 text-[12px] text-[var(--ot-text-3)]">
-                  {chain}
-                  {held ? <Chip className="text-[11px]">{held}</Chip> : null}
-                  {/* Said out loud rather than shown as a badge: an unverified
-                      token is the shape most token scams take, and the
-                      provider's spam filter is not the same as vouching. */}
-                  {row.asset.verified ? null : (
-                    <Chip className="text-[11px] text-[var(--ot-warn-text)]">Unverified</Chip>
-                  )}
-                </span>
+          <div role="row" key={token.id} className={`grid ${COLUMNS} items-center gap-3 border-t border-[var(--ot-border)] py-4 transition-colors hover:bg-[var(--ot-surface-2)] sm:gap-5`}>
+            <div role="cell" className="flex min-w-0 items-start gap-2.5 sm:gap-3">
+              <AssetIcon url={token.asset.iconUrl} name={symbol} size={36} />
+              <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+                <div className="flex min-w-0 items-center gap-1.5">
+                  <span title={token.asset.name} className="truncate text-[13px] font-semibold sm:text-[14px]">{symbol}</span>
+                  {!token.asset.verified ? (
+                    <DetailPopover label="Unverified token" className="shrink-0 text-[var(--ot-text-3)] hover:text-[var(--ot-warn-text)]"
+                      detail={<><p className="mb-1 font-semibold">Unverified token</p><p className="leading-relaxed text-[var(--ot-text-2)]">The data provider has not verified this token’s identity.</p></>}>
+                      <svg aria-hidden viewBox="0 0 16 16" className="h-3.5 w-3.5"><path d="m8 1.5 6 3v4c0 3-6 6-6 6s-6-3-6-6v-4l6-3Z" fill="none" stroke="currentColor" strokeWidth="1.2" /><path d="M8 5v3.5M8 11h.01" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
+                    </DetailPopover>
+                  ) : null}
+                </div>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {token.networks.map((balance) => {
+                    const chain = networks.get(balance.chainId)
+                    const name = chain?.name ?? 'Unknown network'
+                    return (
+                      <DetailPopover key={balance.chainId} label={`${name}: ${exactAmount(balance.amount, token.asset.decimals)} ${symbol}`}
+                        className="rounded-full transition-transform hover:-translate-y-0.5"
+                        detail={
+                          <div className="space-y-3">
+                            <div className="flex items-center gap-2 font-semibold"><AssetIcon url={chain?.iconUrl} name={name} size={24} />{name}</div>
+                            <dl className="space-y-2">
+                              <div><dt className="text-[var(--ot-text-3)]">Balance</dt><dd className="break-all font-mono">{exactAmount(balance.amount, token.asset.decimals)} {symbol}</dd></div>
+                              <div><dt className="text-[var(--ot-text-3)]">Spendable</dt><dd className="break-all font-mono">{exactAmount(balance.spendable, token.asset.decimals)} {symbol}</dd></div>
+                              <div className="flex justify-between gap-3"><dt className="text-[var(--ot-text-3)]">Value</dt><dd className="break-all font-mono">{balance.priced ? formatMoneyFlat(balance.value, currency) : 'Price unavailable'}</dd></div>
+                            </dl>
+                          </div>
+                        }>
+                        <AssetIcon url={chain?.iconUrl} name={name} size={18} className="ring-[var(--ot-border-strong)]" />
+                      </DetailPopover>
+                    )
+                  })}
+                </div>
+                {held ? <span title={held} className="truncate text-[10px] text-[var(--ot-text-3)]">{held}</span> : null}
               </div>
             </div>
-
-            <code className="text-right font-mono text-[14px] font-semibold">
-              {formatAmount(row.amount, row.asset.decimals)}
-            </code>
-
-            <code className="text-right font-mono text-[14px]">
-              {formatAmount(row.spendable, row.asset.decimals)}
-            </code>
-
-            <span className="text-right text-[13px] text-[var(--ot-text-2)]">
-              {formatShare(row.share)}
-            </span>
-
-            <code
-              className={cn(
-                'text-right font-mono text-[14px]',
-                row.value < 0 ? 'text-[var(--ot-warn-text)]' : 'text-[var(--ot-text)]',
-              )}
-            >
-              {row.holdings.every((holding) => holding.value === null) ? '—' : formatMoneyFlat(row.value, currency)}
-            </code>
+            <div role="cell" className="min-w-0 space-y-1">
+              <Balance amount={token.amount} decimals={token.asset.decimals} symbol={symbol} label="Total balance" />
+              <div className="lg:hidden">
+                <span className="block text-right text-[9px] text-[var(--ot-text-3)]">Spendable</span>
+                <Balance amount={token.spendable} decimals={token.asset.decimals} symbol={symbol} label="Spendable balance" subdued />
+              </div>
+            </div>
+            <div role="cell" className="hidden min-w-0 lg:block"><Balance amount={token.spendable} decimals={token.asset.decimals} symbol={symbol} label="Spendable balance" subdued /></div>
+            <span role="cell" className="hidden text-right text-[12px] text-[var(--ot-text-2)] lg:block">{formatShare(token.share)}</span>
+            <div role="cell" className="min-w-0">
+              <DetailPopover label={token.priced ? `Value: ${formatMoneyFlat(token.value, currency)}` : 'Price unavailable'} className="block w-full text-right"
+                detail={<p className="break-all font-mono">{token.priced ? formatMoneyFlat(token.value, currency) : 'Price unavailable'}</p>}>
+                <span className={cn('block truncate font-mono text-[12px] font-medium sm:text-[13px]', token.value < 0 && 'text-[var(--ot-warn-text)]')}>
+                  {token.priced ? formatMoneyFlat(token.value, currency) : '—'}
+                </span>
+              </DetailPopover>
+              <span className="mt-1 block text-right text-[10px] text-[var(--ot-text-3)] lg:hidden">{formatShare(token.share)}</span>
+            </div>
           </div>
         )
       })}
-
-      {rows.length === 0 && !loading ? (
-        <p className="border-t border-[var(--ot-border)] pt-4 text-[12.5px] leading-[1.5] text-[var(--ot-text-2)]">
-          Nothing to show here. Otto found no balances on this network.
-        </p>
+      {tokens.length === 0 && !loading ? (
+        <p className="border-t border-[var(--ot-border)] py-8 text-center text-[13px] text-[var(--ot-text-2)]">No balances on this network.</p>
       ) : null}
     </div>
   )
