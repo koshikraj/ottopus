@@ -189,3 +189,32 @@ describe('avatar contrast', () => {
     }
   })
 })
+
+/**
+ * Privy's `walletClientType` values, pinned.
+ *
+ * Found the hard way: the map said `rabby` and the live data said
+ * `rabby_wallet`, so a linked Rabby rendered as "rabby wallet" with no tint.
+ * The failure is silent — the humanised fallback produces something that reads
+ * like a styling slip rather than a missing entry — so the exact spellings are
+ * asserted rather than eyeballed.
+ */
+describe("Privy's wallet client identifiers", () => {
+  it.each([
+    ['rabby_wallet', 'Rabby'],
+    ['coinbase_wallet', 'Coinbase Wallet'],
+    ['okx_wallet', 'OKX Wallet'],
+    ['brave_wallet', 'Brave Wallet'],
+    ['metamask', 'MetaMask'],
+    ['phantom', 'Phantom'],
+    ['safe', 'Safe'],
+  ])('%s is named %s', (client, name) => {
+    expect(WALLET_NAMES[client]).toBe(name)
+  })
+
+  /** The suffixed ones are the trap; the bare spellings must not creep back. */
+  it.each(['rabby', 'okx', 'brave', 'bitget'])('does not use the bare spelling %s', (bare) => {
+    expect(WALLET_NAMES[bare]).toBeUndefined()
+    expect(WALLET_AVATARS[bare]).toBeUndefined()
+  })
+})
