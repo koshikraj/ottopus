@@ -1,24 +1,31 @@
 'use client'
 
 import { useSearchParams } from 'next/navigation'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { usePrivyAvailable } from '@/components/auth'
 import { Otto } from '@/components/brand'
-import { BubbleField } from '@/components/motion'
+import { BubbleField, SeaLife } from '@/components/motion'
 import { SkeletonShelf } from '@/components/motion/loaders'
 import { Figure, FirstIntentNudge, PageHeader, TabBar } from '@/components/shell'
-import { Button, Callout, Chip, EmptyState } from '@/components/ui'
+import { Button, Callout, EmptyState } from '@/components/ui'
 import {
   ArmCard,
   LinkWalletDialog,
   MAX_ARMS,
-  TokenTable,
   armsOf,
   failureText,
+  useWalletIcons,
   useWallets,
   type WalletsFailure,
 } from '@/components/wallets'
 import type { Arm } from '@/lib/api'
+import { cn } from '@/lib/cn'
+import { formatDelta, formatMoney, formatMoneyFlat, formatShare } from '@/lib/format'
+import {
+  NetworkFilter, TokenTable, usePortfolio, portfolioOf, portfolioFailureText, unreadArms,
+  type PortfolioState,
+} from '@/components/portfolio'
+import { selectPortfolio } from '@/components/portfolio/select-portfolio'
 
 /**
  * Portfolio, per P2 in the design: aggregate on top, per-wallet below.
@@ -43,10 +50,17 @@ function ConnectedPortfolio() {
   const tab = useSearchParams().get('tab') ?? 'tokens'
 
   const wallets = armsOf(state)
+  const portfolio = usePortfolio(wallets, state.status !== 'loading')
+  // Privy's hook, so it has to be read here rather than down in ArmCard, which
+  // also renders on the styleguide with no Privy configured at all.
+  const walletIcons = useWalletIcons()
 
   return (
     <Frame
       wallets={wallets}
+      walletIcons={walletIcons}
+      portfolioState={portfolio.state}
+      onRefresh={portfolio.refresh}
       loading={state.status === 'loading'}
       failure={state.status === 'failed' ? state.reason : undefined}
       linkError={linkError}
@@ -68,8 +82,36 @@ function ConnectedPortfolio() {
   )
 }
 
+/**
+ * Where the ambient layer goes on a view that keeps a rail: in the rail, which
+ * on a wide screen is the only open water there is.
+ */
+const RAIL_WATER = 'xl:left-auto xl:w-[352px]'
+
+/**
+ * The portfolio's water. Both tabs stand on it — the same canvas as the empty
+ * scene, fading in at the top so the section has no seam against the tab bar.
+ * The ambient layer sits behind whatever the caller puts on top, which is why
+ * children come last and carry their own `relative`.
+ */
+function Sea({ ambient, children }: { ambient?: string; children: React.ReactNode }) {
+  return (
+    <div className="ot-sea relative flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div className="ot-caustic" />
+      <div className="ot-caustic ot-caustic--b" />
+      <BubbleField pattern="canvas" className={ambient} />
+      <SeaLife className={ambient} />
+      {children}
+    </div>
+  )
+}
+
 interface FrameProps {
   wallets: Arm[]
+  /** Wallet logos by lowercased address, for the arms connected in this browser. */
+  walletIcons?: ReadonlyMap<string, string>
+  portfolioState?: PortfolioState
+  onRefresh?: () => void
   loading?: boolean
   /** Set when the last refresh failed. The arms above are still what we know. */
   failure?: WalletsFailure | undefined
@@ -79,8 +121,11 @@ interface FrameProps {
   dialog?: React.ReactNode
 }
 
-function Frame({
+export function Frame({
   wallets,
+  walletIcons,
+  portfolioState,
+  onRefresh,
   loading = false,
   failure,
   linkError,
@@ -88,11 +133,25 @@ function Frame({
   onLink,
   dialog,
 }: FrameProps) {
+  const [network, setNetwork] = useState<string | null>(null)
+  const portfolio = portfolioState ? portfolioOf(portfolioState) : null
+  const selectedNetwork = portfolio?.chains.some((chain) => chain.chainId === network) ? network : null
+  const selected = useMemo(() => portfolio ? selectPortfolio(portfolio, selectedNetwork) : null, [portfolio, selectedNetwork])
+  const missing = unreadArms(portfolio)
+  const hasReading = !!portfolio?.arms.some((arm) => arm.status === 'ok')
+  const money = selected && hasReading ? formatMoney(selected.total, selected.currency) : null
+  const delta = selected && hasReading
+    ? formatDelta(selected.change1d, selected.gross, selected.currency)
+    : null
+  const balanceFailure = portfolioState?.status === 'failed' ? portfolioFailureText(portfolioState.reason) : null
+  const balancesLoading = wallets.length > 0 && (!portfolioState || portfolioState.status === 'loading')
   const linked = wallets.length > 0
   const free = MAX_ARMS - wallets.length
+  /** The one view that carries the nudge in its own right-hand rail. */
+  const tokensView = linked && tab !== 'wallets'
 
   return (
-    <>
+    <div data-portfolio className="relative flex min-h-0 flex-1 flex-col [&>*]:shrink-0">
       <PageHeader
         title="Portfolio"
         eyebrow={
@@ -100,8 +159,16 @@ function Frame({
             ? `Total balance · ${wallets.length} wallet${wallets.length > 1 ? 's' : ''}`
             : 'Total balance'
         }
-        headline={<Figure whole="$0" fraction="00" />}
-        detail={linked ? 'Balances aren’t connected yet.' : 'No wallets linked yet.'}
+        headline={money ? <Figure {...money} /> : loading || linked || failure
+          ? <Figure whole="—" /> : <Figure whole="$0" fraction="00" />}
+        detail={loading ? 'Loading wallets…' : failure && !linked ? 'Wallets unavailable' : !linked ? 'No wallets linked yet.' : balancesLoading ? 'Reading balances…' : !hasReading ? 'Balances unavailable' : (
+          <span>
+            {delta?.text ?? 'No change today'}
+            {selectedNetwork ? ` · ${portfolio?.chains.find((chain) => chain.chainId === selectedNetwork)?.name}` : ''}
+            {missing.length > 0 ? ' · Partial total' : ''}
+            {portfolioState?.status === 'failed' ? ' · Last successful reading' : ''}
+          </span>
+        )}
         action={
           <Button variant="secondary" size="sm" onClick={onLink} disabled={!onLink}>
             Link wallet
@@ -117,6 +184,16 @@ function Frame({
         <div className="px-5 pt-4 sm:px-[26px]">
           <Callout severity="caution" title={failureText(failure).title}>
             {failureText(failure).body}
+          </Callout>
+        </div>
+      ) : null}
+
+      {linked && (balanceFailure || missing.length > 0) ? (
+        <div className="px-5 pt-4 sm:px-[26px]" role="status">
+          <Callout severity="caution" title={balanceFailure?.title ?? 'Some balances are missing'}>
+            {balanceFailure?.body ?? `${missing.length} of ${wallets.length} wallets could not be read. Their balances are excluded from the total.`}
+            {portfolio && balanceFailure ? ' Showing the last successful reading.' : ''}
+            <Button variant="secondary" size="sm" onClick={onRefresh}>Refresh balances</Button>
           </Callout>
         </div>
       ) : null}
@@ -138,30 +215,60 @@ function Frame({
               { value: 'wallets', label: 'Wallets' },
               { value: 'approvals', label: 'Approvals', disabled: true },
             ]}
-            aside={<Chip>All networks</Chip>}
+            aside={<NetworkFilter chains={portfolio?.chains ?? []} value={selectedNetwork} onChange={setNetwork} />}
           />
 
           {tab === 'wallets' ? (
-            <div className="flex flex-1 flex-col gap-2.5 px-5 py-4.5 sm:px-[26px]">
-              {wallets.map((arm) => (
-                <ArmCard key={arm.id} arm={arm} />
-              ))}
-              {free > 0 ? (
-                <div className="flex flex-wrap items-center justify-between gap-3.5 rounded-[12px] border border-dashed border-[var(--ot-border-strong)] px-4 py-3.5">
-                  <span className="text-[13px] leading-[1.45] text-[var(--ot-text-2)]">
-                    {free} slot{free > 1 ? 's' : ''} free. Otto can route across every wallet you
-                    link.
-                  </span>
-                  <Button variant="secondary" size="sm" onClick={onLink} disabled={!onLink}>
-                    Link wallet
-                  </Button>
-                </div>
-              ) : null}
-            </div>
+            <Sea>
+              <div className="ot-scroll relative flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto overscroll-contain px-5 py-4.5 sm:px-[26px]">
+                {wallets.map((arm) => {
+                  const summary = selected?.arms.find((item) => item.walletId === arm.id)
+                  const known = summary?.status === 'ok'
+                  return (
+                    <ArmCard
+                      key={arm.id}
+                      arm={arm}
+                      icon={walletIcons?.get(arm.address.toLowerCase())}
+                      value={known ? formatMoneyFlat(summary.total, selected?.currency) : null}
+                      share={known ? `${formatShare(summary.share)} of holdings`
+                        : balancesLoading ? 'Reading balance…' : 'Balance unavailable'}
+                    />
+                  )
+                })}
+                {free > 0 ? (
+                  <div className="flex flex-wrap items-center justify-between gap-3.5 rounded-[12px] border border-dashed border-[var(--ot-border-strong)] bg-[var(--ot-card)]/60 px-4 py-3.5">
+                    <span className="text-[13px] leading-[1.45] text-[var(--ot-text-2)]">
+                      {free} slot{free > 1 ? 's' : ''} free. Otto can route across every wallet you
+                      link.
+                    </span>
+                    <Button variant="secondary" size="sm" onClick={onLink} disabled={!onLink}>
+                      Link wallet
+                    </Button>
+                  </div>
+                ) : null}
+              </div>
+            </Sea>
           ) : (
-            <div className="flex flex-1 flex-col">
-              <TokenTable />
-            </div>
+            <Sea ambient={RAIL_WATER}>
+              <div className="relative flex min-h-0 flex-1">
+                <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+                  {balancesLoading ? <SkeletonShelf rows={3} avatar={36} className="m-4 sm:m-[22px]" /> : hasReading && selected ? (
+                    <TokenTable rows={selected.assets} chains={selected.chains} currency={selected.currency} />
+                  ) : <p className="px-5 py-5 text-[var(--ot-text-2)]">Balances could not be read. Refresh to try again.</p>}
+                </div>
+                {/* The right-hand space. Reserved as a column of its own so the
+                    table reads left-aligned rather than adrift in the middle;
+                    the nudge is the only thing in it today. Below xl there is
+                    no room for a rail, so it stays the overlay it was — now
+                    anchored to this section rather than to the whole page. */}
+                <aside aria-label="Suggestions" className={cn(
+                  'ot-scroll absolute right-3 bottom-3 left-3 z-20 max-h-[45dvh] overflow-y-auto rounded-2xl bg-[var(--ot-card)] shadow-lg sm:left-auto sm:w-[400px]',
+                  'xl:static xl:z-auto xl:max-h-none xl:w-[352px] xl:shrink-0 xl:rounded-none xl:bg-transparent xl:pt-1 xl:shadow-none',
+                )}>
+                  <FirstIntentNudge />
+                </aside>
+              </div>
+            </Sea>
           )}
         </>
       ) : loading ? (
@@ -188,7 +295,9 @@ function Frame({
       )}
 
       {dialog}
-      <FirstIntentNudge />
-    </>
+      {tokensView ? null : (
+        <FirstIntentNudge className="absolute right-3 bottom-3 left-3 z-20 max-h-[45dvh] overflow-y-auto rounded-2xl bg-[var(--ot-card)] shadow-lg sm:left-auto" />
+      )}
+    </div>
   )
 }
