@@ -8,6 +8,7 @@ export {
   protectedResourceMetadata,
   protectedResourceMetadataUrl,
   resourceUrl,
+  wellKnownPaths,
 } from './metadata.js'
 export { oauthRoutes } from './routes.js'
 export {
