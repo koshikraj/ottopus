@@ -10,6 +10,20 @@ import { safeNext } from '@/lib/safe-next'
 import { usePrivyAvailable } from './privy-provider'
 import { SignInPanel } from './sign-in-panel'
 
+/** Where the OAuth provider sends people back to. */
+const SIGN_IN_PATH = '/signin'
+
+/**
+ * How often to check we actually left, and how long to wait before forcing it.
+ *
+ * The wait is only paid when the navigation was undone, and it is spent behind
+ * the "Signed in" loader. It is not shorter because a hard navigation does not
+ * unload the document instantly — firing one before Privy's cleanup has run
+ * would let that cleanup apply to a document that is still alive.
+ */
+const RECHECK_MS = 200
+const GIVE_UP_MS = 1200
+
 /**
  * /signin, for someone who is already signed in.
  *
@@ -26,7 +40,38 @@ function Live() {
   const returning = ready && authenticated
 
   useEffect(() => {
-    if (returning) router.replace(next)
+    if (!returning) return
+    router.replace(next)
+
+    /**
+     * Coming back from a social provider, Privy strips its own query
+     * parameters once the code exchange finishes:
+     *
+     *   searchParams.delete('privy_oauth_code') … history.replaceState({}, '', url)
+     *
+     * `replaceState` does not go through Next's router, so it silently undoes
+     * the navigation above and pins the URL back on /signin — which is why a
+     * manual refresh looked like the fix. Check once things have settled, and
+     * if we are still here, leave the hard way, which nothing can replaceState
+     * out from under.
+     */
+    // Polled rather than timed once, because the order is not guaranteed: the
+    // cleanup may land before or after the navigation, and a single check at
+    // the wrong moment would either miss it or fire before it happened.
+    const started = Date.now()
+    const settle = setInterval(() => {
+      if (window.location.pathname !== SIGN_IN_PATH) {
+        clearInterval(settle)
+        return
+      }
+      if (Date.now() - started >= GIVE_UP_MS) {
+        clearInterval(settle)
+        // A full navigation, which nothing can replaceState out from under.
+        window.location.replace(next)
+      }
+    }, RECHECK_MS)
+
+    return () => clearInterval(settle)
   }, [returning, router, next])
 
   if (returning) {
