@@ -1,4 +1,5 @@
 import { Hono, type Context } from 'hono'
+import { cors } from 'hono/cors'
 import { createPrivyAuth, keyProblem, requireSession } from '../auth/index.js'
 import { config } from '../config.js'
 import { getDb } from '../db/client.js'
@@ -11,6 +12,30 @@ import { getDb } from '../db/client.js'
  * to data. Authenticated by Privy session, unlike the MCP surface.
  */
 export const apiApp = new Hono()
+
+/**
+ * The web app is always cross-origin — ottopus.xyz calling api.ottopus.xyz in
+ * production, :3000 calling :8787 locally — so every call from the browser is
+ * preflighted and dies without this.
+ *
+ * An allow-list rather than `*`. Bearer tokens make `*` survivable, but the
+ * list costs nothing and means a stray site cannot quietly read responses on
+ * behalf of someone already signed in.
+ *
+ * X-Privy-Identity-Token has to be named explicitly: a custom request header is
+ * exactly what turns a simple request into a preflighted one, and a browser
+ * will not send a header the preflight did not allow.
+ */
+apiApp.use(
+  '*',
+  cors({
+    origin: (origin) => (config.webOrigins.includes(origin) ? origin : null),
+    allowMethods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowHeaders: ['Authorization', 'Content-Type', 'X-Privy-Identity-Token'],
+    // A day of not re-asking. The answer only changes on deploy.
+    maxAge: 86400,
+  }),
+)
 
 apiApp.get('/health', (c) => c.json({ ok: true, surface: 'api' }))
 
