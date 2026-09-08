@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { ApiError } from '@/lib/api'
 import { Button, Callout, Dialog, Input } from '@/components/ui'
 
@@ -49,16 +49,19 @@ export function LinkWalletDialog({
   const [pasting, setPasting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // A dialog that remembers the last attempt is a dialog that shows a stale
-  // error the next time it opens.
-  useEffect(() => {
-    if (!open) {
-      setAddress('')
-      setLabel('')
-      setError(null)
-      setPasting(false)
-    }
-  }, [open])
+  /**
+   * Cleared on the way out rather than on the way in. A dialog that remembers
+   * the last attempt shows a stale error the next time it opens, and every
+   * route out — the buttons, Escape, the backdrop, the sheet drag — arrives
+   * here through the Dialog's own onClose.
+   */
+  function close() {
+    setAddress('')
+    setLabel('')
+    setError(null)
+    setPasting(false)
+    onClose()
+  }
 
   const trimmed = address.trim()
   const full = used >= max
@@ -71,7 +74,7 @@ export function LinkWalletDialog({
     setError(null)
     try {
       await onPaste({ address: trimmed, ...(label.trim() ? { label: label.trim() } : {}) })
-      onClose()
+      close()
     } catch (err) {
       const code = err instanceof ApiError ? err.code : undefined
       setError((code && MESSAGE_FOR[code]) ?? 'That address could not be added.')
@@ -83,7 +86,7 @@ export function LinkWalletDialog({
   return (
     <Dialog
       open={open}
-      onClose={onClose}
+      onClose={close}
       title="Link a wallet"
       description={`Otto has ${max} arms. ${used} in use.`}
     >
