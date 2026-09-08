@@ -13,13 +13,28 @@ export interface WalletListProps {
 export function WalletList({ wallets, onUnlink }: WalletListProps) {
   const [confirming, setConfirming] = useState<Arm | null>(null)
   const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  function dismiss() {
+    if (busy) return
+    setConfirming(null)
+    setError(null)
+  }
 
   async function confirm() {
     if (!confirming) return
     setBusy(true)
+    setError(null)
     try {
       await onUnlink(confirming)
       setConfirming(null)
+    } catch {
+      // The dialog stays open holding the error. Closing it on failure would
+      // look exactly like success, and the wallet would still be linked.
+      //
+      // Rejecting the signature in the wallet lands here too, which is why the
+      // wording does not assert that anything went wrong on our side.
+      setError('That wallet is still linked. Nothing changed — try again.')
     } finally {
       setBusy(false)
     }
@@ -60,7 +75,7 @@ export function WalletList({ wallets, onUnlink }: WalletListProps) {
 
       <Dialog
         open={confirming !== null}
-        onClose={() => (busy ? undefined : setConfirming(null))}
+        onClose={dismiss}
         tone="destructive"
         title={`Unlink ${confirming ? armName(confirming) : ''}?`}
         description={
@@ -70,7 +85,7 @@ export function WalletList({ wallets, onUnlink }: WalletListProps) {
         }
         actions={
           <>
-            <Button variant="ghost" onClick={() => setConfirming(null)} disabled={busy} fullWidth>
+            <Button variant="ghost" onClick={dismiss} disabled={busy} fullWidth>
               Keep it
             </Button>
             <Button variant="destructive" onClick={() => void confirm()} disabled={busy} fullWidth>
@@ -78,7 +93,13 @@ export function WalletList({ wallets, onUnlink }: WalletListProps) {
             </Button>
           </>
         }
-      />
+      >
+        {error ? (
+          <p role="alert" className="text-[13px] leading-[1.5] text-[var(--ot-block-text)]">
+            {error}
+          </p>
+        ) : null}
+      </Dialog>
     </>
   )
 }
