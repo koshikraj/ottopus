@@ -215,7 +215,7 @@ export function Frame({
                the page's canvas. The rows float on it as their own cards, so the
                ambient layer stays in the margins and the gaps between them —
                never under a number someone is about to act on. */
-            <div className="ot-depth relative flex min-h-0 flex-1 flex-col overflow-hidden">
+            <div className="ot-token-sea relative flex min-h-0 flex-1 flex-col overflow-hidden">
               <div className="ot-caustic" />
               <div className="ot-caustic ot-caustic--b" />
               <BubbleField pattern="canvas" />
