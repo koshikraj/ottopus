@@ -1,5 +1,5 @@
-import { Hono } from 'hono'
-import { createPrivyVerifier, keyProblem, requireSession } from '../auth/index.js'
+import { Hono, type Context } from 'hono'
+import { createPrivyAuth, keyProblem, requireSession } from '../auth/index.js'
 import { config } from '../config.js'
 import { getDb } from '../db/client.js'
 
@@ -34,7 +34,7 @@ if (!ready) console.error(`[api] sign-in disabled — ${missing.join('; ')}`)
 
 if (ready) {
   const session = requireSession({
-    verify: createPrivyVerifier({
+    auth: createPrivyAuth({
       appId: config.privyAppId!,
       verificationKey: config.privyVerificationKey!,
     }),
@@ -42,18 +42,20 @@ if (ready) {
   })
 
   /**
-   * Who the caller is. The web app calls this once after sign-in to turn a
-   * Privy session into an Ottopus user, which is also what creates the row on
-   * a first ever sign-in.
+   * Establish the session. The web app calls this once after signing in, and
+   * this is what creates the user row on a first ever sign-in — there is no
+   * separate registration step.
+   *
+   * POST rather than GET because it writes. An idempotent write is still a
+   * write, and a GET that creates rows is one link prefetcher away from
+   * creating them by accident.
    */
-  apiApp.get('/me', session, (c) =>
-    c.json({ userId: c.get('userId'), privyDid: c.get('privyDid') }),
-  )
+  apiApp.post('/session', session, (c) => c.json({ user: c.get('user') }))
+
+  /** Who the caller is, without writing anything new. */
+  apiApp.get('/me', session, (c) => c.json({ user: c.get('user') }))
 } else {
-  apiApp.get('/me', (c) =>
-    c.json(
-      { error: 'not_configured', detail: missing },
-      503,
-    ),
-  )
+  const unconfigured = (c: Context) => c.json({ error: 'not_configured', detail: missing }, 503)
+  apiApp.post('/session', unconfigured)
+  apiApp.get('/me', unconfigured)
 }
