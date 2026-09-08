@@ -14,9 +14,9 @@ import { WalletList } from './wallet-list'
  * Linked wallets, end to end: the list, the dialog, and the failure modes
  * worth naming.
  *
- * Used on Settings, and by the Portfolio empty state. Both need the same
- * behaviour, and a second copy of the sync effect would mean two components
- * racing to reconcile the same account.
+ * Settings' wallet section. Portfolio drives the same pieces from its own
+ * `useWallets` rather than mounting this — one hook per page, or two
+ * components reconcile the same account against the same token.
  *
  * Split in two because Privy's hooks throw outside their provider, and the
  * provider does not mount without a valid app id. The rest of the app stays
