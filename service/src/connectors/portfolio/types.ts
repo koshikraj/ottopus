@@ -134,4 +134,11 @@ export interface PortfolioConnector {
    * down" without pattern-matching on prose.
    */
   positionsFor(account: AccountRef): Promise<AccountPosition[]>
+  /**
+   * Human name for a chain — "BNB Chain", never "binance-smart-chain".
+   *
+   * Optional: a connector that only reports balances is still a connector, and
+   * the aggregate falls back to the CAIP id rather than requiring this.
+   */
+  chainName?(chainId: string): string | null
 }
