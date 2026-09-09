@@ -47,6 +47,36 @@
   }
 }
 
+/* --- The sidebar stays; the page scrolls -------------------------------------
+   At lg the shell is the viewport and main is the scrolling region, so the
+   sidebar never leaves the screen and the account menu at its foot is always
+   where the hand expects it. Before this the document scrolled, and a long
+   settings page carried the whole column — nav, agent card and all — off the
+   top with it.
+
+   lg only. Below that there is no sidebar to keep, the bottom bar is fixed on
+   its own, and a phone's collapsing URL chrome only collapses when the
+   document itself scrolls — an inner scroller would leave it pinned open.
+
+   The portfolio pins itself at every width in portfolio.css, and its main is
+   overflow:hidden rather than auto because it scrolls its table and its
+   wallet list separately. That rule is more specific than this one, so it
+   wins where both apply. */
+@media (min-width: 1024px) {
+  .ot-app-shell {
+    height: 100dvh;
+    overflow: hidden;
+  }
+  .ot-app-shell > .ot-app-grid {
+    min-height: 0;
+  }
+  .ot-app-shell #main {
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+}
+
 /* --- The account menu -------------------------------------------------------
    A native popover, so it sits in the top layer: the UA gives it position:fixed
    with inset:0 and margin:auto, which centres it in the viewport. The component

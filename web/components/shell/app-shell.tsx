@@ -71,7 +71,12 @@ export function AppShell({ children, agent, account }: AppShellProps) {
           <ShellNav />
         </aside>
 
-        <main id="main" className="flex min-w-0 flex-col lg:col-start-2 lg:row-span-3 lg:row-start-1">
+        {/* The scrolling region at lg — see shell.css. ot-scroll for the same
+            thin bar every other scroller in the app draws. */}
+        <main
+          id="main"
+          className="ot-scroll flex min-w-0 flex-col lg:col-start-2 lg:row-span-3 lg:row-start-1"
+        >
           {children}
         </main>
 
