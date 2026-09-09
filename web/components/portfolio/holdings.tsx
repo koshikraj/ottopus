@@ -42,7 +42,7 @@ export function Holdings({ portfolio, wallets = [] }: HoldingsProps) {
         <p className="ot-token-row py-8 text-center text-[13px] text-[var(--ot-text-2)]">No balances on this network.</p>
       ) : (
         <section aria-label="Wallet balances">
-          <SectionHead icon={<WalletGlyph />} title="Wallet" value={portfolio.wallet.value} share={portfolio.wallet.share} currency={portfolio.currency} />
+          <SectionHead icon={<WalletGlyph />} title="Wallet" value={portfolio.wallet.value} share={portfolio.wallet.share} unpriced={portfolio.wallet.unpriced} currency={portfolio.currency} />
           {portfolio.assets.length > 0 ? (
             <TokenTable rows={portfolio.assets} chains={portfolio.chains} currency={portfolio.currency} wallets={wallets} />
           ) : (

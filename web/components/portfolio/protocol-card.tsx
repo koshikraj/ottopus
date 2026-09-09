@@ -15,29 +15,52 @@ import { WalletMark, walletRefOf, type WalletRef } from './wallet-marks'
 const COLUMNS = 'grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,0.75fr)] lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1.2fr)_minmax(0,0.55fr)_minmax(0,1fr)]'
 const GUTTER = 'gap-2.5 px-2.5 sm:gap-5 sm:px-3.5'
 
+/** "1 holding has no price" — the title behind a partial figure. */
+export function unpricedNote(count: number): string {
+  return `${count} holding${count === 1 ? ' has' : 's have'} no price, so this figure leaves ${count === 1 ? 'it' : 'them'} out`
+}
+
+/** A small amber mark that a figure is a floor, not the whole. */
+function PartialBadge({ unpriced }: { unpriced: number }) {
+  return (
+    <Badge tone="warn" title={unpricedNote(unpriced)} className="cursor-help px-2 py-0.5 text-[11px]">
+      Partial
+    </Badge>
+  )
+}
+
 /**
  * The line that opens a section: what it is, what it is worth, and how much
  * of the whole that is. The wallet section and every protocol card share it,
  * so "Wallet · $760" and "Fluid · $1,898" sit on the same baseline.
+ *
+ * With an unpriced holding in it the figure is a floor: it stays in the
+ * ordinary colour, carries a Partial mark, and is never called net debt —
+ * debt against collateral of unknown value is unknown, not negative.
  */
-export function SectionHead({ icon, title, value, share, change, currency = 'usd', href }: {
+export function SectionHead({ icon, title, value, share, change, unpriced = 0, currency = 'usd', href }: {
   icon: ReactNode
   title: string
   value: number
   share: number
   change?: number
+  unpriced?: number
   currency?: string
   href?: string | null
 }) {
+  const partial = unpriced > 0
   return (
     <header className="flex min-w-0 items-center gap-2.5 px-1 py-2">
       {icon}
       <h2 className="min-w-0 truncate text-[14px] font-semibold sm:text-[15px]">{title}</h2>
       <span aria-hidden className="text-[var(--ot-text-3)]">·</span>
-      <span className={cn('shrink-0 font-mono text-[14px] font-semibold tabular-nums sm:text-[15px]', value < 0 && 'text-[var(--ot-block-text)]')}>
+      <span title={partial ? unpricedNote(unpriced) : undefined}
+        className={cn('shrink-0 font-mono text-[14px] font-semibold tabular-nums sm:text-[15px]', value < 0 && !partial && 'text-[var(--ot-block-text)]')}>
         {formatMoneyFlat(value, currency)}
       </span>
-      {share > 0 ? (
+      {partial ? (
+        <PartialBadge unpriced={unpriced} />
+      ) : share > 0 ? (
         <Badge tone="neutral" className="px-2 py-0.5 text-[11px]">{formatShare(share)}</Badge>
       ) : value < 0 ? (
         <Badge tone="block" className="px-2 py-0.5 text-[11px]">Net debt</Badge>
@@ -144,6 +167,7 @@ export function ProtocolCard({ protocol, chains, wallets, currency = 'usd' }: Pr
         value={protocol.value}
         share={protocol.share}
         change={protocol.change1d}
+        unpriced={protocol.unpriced}
         currency={currency}
         href={protocol.url}
       />
@@ -156,7 +180,13 @@ export function ProtocolCard({ protocol, chains, wallets, currency = 'usd' }: Pr
               <span role="columnheader" className="min-w-0 truncate">{group.name}</span>
               {kind ? <span role="columnheader" className="shrink-0 font-medium normal-case tracking-normal text-[var(--ot-text-3)]">{kind}</span> : null}
               <span className="flex-1" />
-              <span role="columnheader" className={cn('shrink-0 font-mono tracking-normal', group.value < 0 && 'text-[var(--ot-block-text)]')}>
+              {group.unpriced > 0 ? (
+                <span role="columnheader" title={unpricedNote(group.unpriced)} className="shrink-0 cursor-help font-medium normal-case tracking-normal text-[var(--ot-warn-text)]">
+                  Partial
+                </span>
+              ) : null}
+              <span role="columnheader" title={group.unpriced > 0 ? unpricedNote(group.unpriced) : undefined}
+                className={cn('shrink-0 font-mono tracking-normal', group.value < 0 && group.unpriced === 0 && 'text-[var(--ot-block-text)]')}>
                 {formatMoneyFlat(group.value, currency)}
               </span>
             </div>
