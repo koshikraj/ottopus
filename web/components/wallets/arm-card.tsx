@@ -49,7 +49,10 @@ function Avatar({ arm, size = 34 }: { arm: Arm; size?: number }) {
           alt=""
           width={size}
           height={size}
-          className="h-full w-full object-contain p-[3px]"
+          // Full bleed with the tile's own radius: the bundled marks are app
+          // icons with their own backgrounds, and a square one sitting inset
+          // in a rounded tile read as a sticker rather than the wallet.
+          className="h-full w-full rounded-[10px] object-cover"
           onError={() => setFailed(true)}
         />
       ) : armName(arm).charAt(0).toUpperCase()}
