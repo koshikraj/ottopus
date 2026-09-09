@@ -22,6 +22,13 @@ const DISMISS_AFTER_PX = 90
  */
 export const EXIT_MS = 260
 
+/**
+ * Below this a dialog is a bottom sheet. The design's breakpoint, matching
+ * dialog.css to the hundredth so a caller that switches to a dialog "on a
+ * phone" gets the sheet every time, never the overlay in a phone's width.
+ */
+export const SHEET_MEDIA = '(max-width: 639.98px)'
+
 export type DialogTone = 'default' | 'destructive'
 
 export interface DialogProps {
@@ -86,12 +93,22 @@ export function Dialog({
   }, [open])
 
   // showModal() makes the background inert but does not stop it scrolling.
+  //
+  // Both the document and #main: inside the app frame main is the scroller and
+  // the document never moves, but the public pages have no frame and scroll the
+  // document. main carries scrollbar-gutter: stable, so flipping it to hidden
+  // shifts nothing.
   useEffect(() => {
     if (!open) return
-    const previous = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
+    const scrollers = [document.body, document.getElementById('main')].filter(
+      (el): el is HTMLElement => el !== null,
+    )
+    const previous = scrollers.map((el) => el.style.overflow)
+    for (const el of scrollers) el.style.overflow = 'hidden'
     return () => {
-      document.body.style.overflow = previous
+      scrollers.forEach((el, i) => {
+        el.style.overflow = previous[i] ?? ''
+      })
     }
   }, [open])
 

@@ -1,0 +1,126 @@
+/* Ottopus — the app frame's two layouts.
+
+   The design has no mobile drawing, so the bottom bar is specified here rather
+   than ported. What it borrows is the design's own rule for a phone, stated for
+   dialogs: the thing you act on sits at the edge nearest the thumb.
+
+   Why CSS rather than Tailwind classes: the bar's height is reserved twice —
+   once by the bar and once by the shell that must not end underneath it — and
+   the two have to be the same number. A variable is how they stay the same
+   number. The breakpoint is written once here, for the same reason: the bar
+   appearing and the sidebar disappearing are one event. */
+
+:root {
+  /* The strip itself, without the home-indicator inset. Icon, label and enough
+     around them that a 4-up bar clears 44px on the shortest phone. */
+  --ot-bottom-nav: 58px;
+}
+
+.ot-bottom-nav {
+  display: none;
+}
+
+@media (max-width: 1023.98px) {
+  .ot-bottom-nav {
+    display: block;
+    position: fixed;
+    inset-inline: 0;
+    bottom: 0;
+    /* Above the portfolio's nudge overlay (z-20), below a dialog — which is in
+       the top layer and covers this on purpose. See dialog.css. */
+    z-index: 40;
+    /* box-sizing is border-box globally, so this height is the whole strip:
+       hairline, content, and the inset. The shell reserves the same
+       expression. */
+    height: calc(var(--ot-bottom-nav) + env(safe-area-inset-bottom, 0px));
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    border-top: 1px solid var(--ot-border);
+    background: var(--ot-card);
+  }
+
+  /* Nothing may end underneath the bar. Reserved on the shell rather than per
+     page, because one page forgetting is a "Sign out" button hidden behind a
+     tab. On the portfolio, where the shell is a fixed 100dvh box, this shortens
+     the frame instead of padding it — the same expression does both. */
+  .ot-app-shell {
+    padding-bottom: calc(var(--ot-bottom-nav) + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+/* --- The frame is the viewport; the page scrolls inside it ------------------
+   The shell is exactly the viewport and main is the scrolling region, on every
+   page at every width. The document never scrolls: the sidebar never leaves the
+   screen, the bottom bar never has a page sliding under it, and there is never
+   a second scrollbar at the window's edge beside the one in the page.
+
+   Every width on purpose. A phone's URL chrome only collapses when the
+   document scrolls, so it stays open here — the price of a frame that behaves
+   like an app rather than a page, and 100dvh follows the chrome either way.
+
+   The portfolio adds to this rather than replacing it: its main is
+   overflow:hidden because its table and its wallet list are their own
+   scrolling regions. That rule is more specific than this one and wins where
+   both apply. */
+.ot-app-shell {
+  height: 100dvh;
+  overflow: hidden;
+}
+.ot-app-shell > .ot-app-grid {
+  min-height: 0;
+}
+.ot-app-shell #main {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* --- The account menu -------------------------------------------------------
+   A native popover, so it sits in the top layer: the UA gives it position:fixed
+   with inset:0 and margin:auto, which centres it in the viewport. The component
+   sets left and bottom from the trigger's rectangle when it opens, so inset is
+   released here and the rest of the UA sheet — border, padding, Canvas
+   colours — is replaced with ours.
+
+   The transition needs the same two things dialog.css needs: @starting-style,
+   because a popover is display:none until it opens, and allow-discrete, so the
+   exit can play before display flips back. Without them it appears from
+   nothing and vanishes without leaving. */
+.ot-account-menu {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  padding: 0;
+  width: 248px;
+  border: 1px solid var(--ot-border);
+  border-radius: 14px;
+  background: var(--ot-card);
+  color: var(--ot-text);
+  box-shadow: var(--ot-shadow-card);
+  overflow: hidden;
+  opacity: 0;
+  transform: translateY(6px);
+  transition:
+    opacity var(--ot-dur-fast) var(--ot-ease-out),
+    transform var(--ot-dur-fast) var(--ot-ease-out),
+    display var(--ot-dur-fast) allow-discrete,
+    overlay var(--ot-dur-fast) allow-discrete;
+}
+
+.ot-account-menu:popover-open {
+  opacity: 1;
+  transform: none;
+}
+
+@starting-style {
+  .ot-account-menu:popover-open {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ot-account-menu {
+    transition: none;
+    transform: none;
+  }
+}
