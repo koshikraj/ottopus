@@ -44,6 +44,12 @@ const base = {
    * the product. When present the user has overridden it.
    */
   fromAccount: accountIdSchema.optional(),
+  /**
+   * Why, in the person's words — "invoice 42", "rent". Part of the intent, so
+   * it is part of the hash and the review page shows exactly what the agent
+   * was told. Short, because it is a label, not a message.
+   */
+  note: z.string().trim().min(1).max(200).optional(),
 }
 
 /**

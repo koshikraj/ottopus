@@ -470,6 +470,36 @@ describe('prepare_transfer', () => {
     expect(plan.humanPlan.warnings[0]).toMatchObject({ severity: 'block', code: 'verify_failed' })
   })
 
+  it('keeps the note on the intent, where the hash covers it', async () => {
+    const sink = planSink()
+    const { client } = await connected(undefined, { readPortfolio: async () => baseHoldings, createPlan: sink.createPlan })
+    await send(client, { note: '  invoice 42 ' })
+    const plan = sink.created[0]!.plan
+    expect(plan.intent.note).toBe('invoice 42')
+    expect(plan.humanPlan.steps).toContain('Note from the request: invoice 42')
+  })
+
+  it('refuses a chain whose currency it cannot name, in a sentence, before reading anything', async () => {
+    const sink = planSink()
+    let read = 0
+    const { client } = await connected(undefined, {
+      readPortfolio: async () => {
+        read += 1
+        return baseHoldings
+      },
+      createPlan: sink.createPlan,
+    })
+    // Cronos: viem knows it, the coin-type table does not, and it does not spend ETH.
+    const res = (await send(client, {
+      asset: 'eip155:25/erc20:0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',
+      to: 'eip155:25:0x1111111111111111111111111111111111111111',
+    })) as { isError?: boolean; content: { text: string }[] }
+    expect(res.isError).toBe(true)
+    expect(res.content[0]!.text).toMatch(/Cronos Mainnet \(eip155:25\) is not supported for transfers yet/)
+    expect(read).toBe(0)
+    expect(sink.created).toHaveLength(0)
+  })
+
   it('rejects an intent it cannot parse before touching anything', async () => {
     const sink = planSink()
     const { client } = await connected(undefined, { createPlan: sink.createPlan })
