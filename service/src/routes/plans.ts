@@ -4,6 +4,7 @@ import { isPending } from '../core/index.js'
 import {
   type PlanDb,
   PlanError,
+  TX_HASH,
   findPlan,
   listPending,
   mintReviewToken,
@@ -34,11 +35,27 @@ const WEB_TRANSITIONS = [
   'cancelled',
 ] as const
 
-const eventSchema = z.object({
-  version: z.number().int().positive(),
-  status: z.enum(WEB_TRANSITIONS),
-  detail: z.record(z.string(), z.unknown()).optional(),
-})
+const version = z.number().int().positive()
+const detail = z.record(z.string(), z.unknown()).optional()
+
+/**
+ * `submitted` is the one transition with a required payload: the transaction
+ * hash is what receipt tracking (#20, later #40) polls, and a submission with
+ * nothing to poll would be a plan that can neither expire nor be cancelled nor
+ * ever confirm. The store refuses it too; this is the 400 with a clear reason.
+ */
+const eventSchema = z.discriminatedUnion('status', [
+  z.object({
+    version,
+    status: z.literal('submitted'),
+    detail: z.object({ txHash: z.string().regex(TX_HASH, 'expected a 0x-prefixed 32-byte hash') }).passthrough(),
+  }),
+  z.object({
+    version,
+    status: z.enum(WEB_TRANSITIONS.filter((s) => s !== 'submitted') as [string, ...string[]]),
+    detail,
+  }),
+])
 
 /**
  * How long a link minted from Requests lives. Short, because the person is
@@ -96,7 +113,7 @@ export function planRoutes(db: PlanDb, session: MiddlewareHandler): Hono {
         userId: c.get('userId'),
         planId: id,
         version: body.data.version,
-        to: body.data.status,
+        to: body.data.status as (typeof WEB_TRANSITIONS)[number],
         detail: body.data.detail,
       })
       return c.json({ status })

@@ -26,6 +26,8 @@ let pg: PGlite
 let alice: string
 let bob: string
 
+const TX = `0x${'ab'.repeat(32)}`
+
 beforeAll(async () => {
   pg = await PGlite.create()
   await pg.exec(`create role anon; create role authenticated; create role service_role;`)
@@ -79,11 +81,11 @@ describe('transition', () => {
   it('walks the happy path, one event each', async () => {
     const plan = planFor(alice)
     await createPlan(db, { plan })
-    const step = (to: Parameters<typeof transition>[1]['to']) =>
-      transition(db, { userId: alice, planId: plan.id, version: 1, to })
+    const step = (to: Parameters<typeof transition>[1]['to'], detail?: Record<string, unknown>) =>
+      transition(db, { userId: alice, planId: plan.id, version: 1, to, detail })
 
     expect(await step('awaiting_signature')).toBe('awaiting_signature')
-    expect(await step('submitted')).toBe('submitted')
+    expect(await step('submitted', { txHash: TX })).toBe('submitted')
     expect(await step('confirmed')).toBe('confirmed')
     expect((await findPlan(db, alice, plan.id))?.plan.status).toBe('confirmed')
     expect(await db.select().from(schema.planEvents)).toHaveLength(4)
@@ -116,13 +118,26 @@ describe('transition', () => {
     ).rejects.toMatchObject({ code: 'illegal_transition' })
   })
 
+  it('refuses a submission with no transaction hash', async () => {
+    const plan = planFor(alice)
+    await createPlan(db, { plan })
+    await transition(db, { userId: alice, planId: plan.id, version: 1, to: 'awaiting_signature' })
+    await expect(
+      transition(db, { userId: alice, planId: plan.id, version: 1, to: 'submitted' }),
+    ).rejects.toMatchObject({ code: 'missing_tx_hash' })
+    await expect(
+      transition(db, { userId: alice, planId: plan.id, version: 1, to: 'submitted', detail: { txHash: '0xabc' } }),
+    ).rejects.toMatchObject({ code: 'missing_tx_hash' })
+    expect((await findPlan(db, alice, plan.id))?.plan.status).toBe('awaiting_signature')
+  })
+
   it('keeps the detail', async () => {
     const plan = planFor(alice)
     await createPlan(db, { plan })
     await transition(db, { userId: alice, planId: plan.id, version: 1, to: 'awaiting_signature' })
-    await transition(db, { userId: alice, planId: plan.id, version: 1, to: 'submitted', detail: { txHash: '0xabc' } })
+    await transition(db, { userId: alice, planId: plan.id, version: 1, to: 'submitted', detail: { txHash: TX } })
     const [last] = await db.select().from(schema.planEvents).orderBy(schema.planEvents.seq).offset(2)
-    expect(last!.detail).toEqual({ txHash: '0xabc' })
+    expect(last!.detail).toEqual({ txHash: TX })
   })
 
   /** Another person's plan is not found, not forbidden. */
@@ -159,7 +174,7 @@ describe('listPending', () => {
     for (const plan of [cancelled, submitted, expired, live]) await createPlan(db, { plan })
     await transition(db, { userId: alice, planId: cancelled.id, version: 1, to: 'cancelled' })
     await transition(db, { userId: alice, planId: submitted.id, version: 1, to: 'awaiting_signature' })
-    await transition(db, { userId: alice, planId: submitted.id, version: 1, to: 'submitted' })
+    await transition(db, { userId: alice, planId: submitted.id, version: 1, to: 'submitted', detail: { txHash: TX } })
 
     expect((await listPending(db, alice)).map((p) => p.plan.id)).toEqual([live.id])
   })

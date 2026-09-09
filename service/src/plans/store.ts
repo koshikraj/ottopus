@@ -28,7 +28,7 @@ export type PlanDb = PgDatabase<PgQueryResultHKT, typeof schema>
 
 export class PlanError extends Error {
   constructor(
-    readonly code: 'not_found' | 'illegal_transition' | 'illegal_initial_status',
+    readonly code: 'not_found' | 'illegal_transition' | 'illegal_initial_status' | 'missing_tx_hash',
     message: string,
   ) {
     super(message)
@@ -72,6 +72,9 @@ export function summarise(record: PlanRecord): PlanSummary {
     createdAt: record.createdAt,
   }
 }
+
+/** A transaction hash. What `submitted` must carry. */
+export const TX_HASH = /^0x[0-9a-f]{64}$/i
 
 /** A plan starts here or nowhere. `blocked` is verify (#77) refusing it. */
 const INITIAL_STATUSES: readonly PlanStatus[] = ['draft', 'awaiting_review', 'blocked']
@@ -192,6 +195,13 @@ export async function transition(
     const from = effectiveStatus(latest.status as PlanStatus, row.expiresAt)
     if (!canTransition(from, to)) {
       throw new PlanError('illegal_transition', `${from} -> ${to} is not allowed`)
+    }
+    // Submitted is the one state our side cannot take back, and the one that
+    // needs a reference for receipt tracking. A submission with nothing to
+    // track is a plan stuck between two worlds; refuse it here so every
+    // writer, not just the web route, is held to it.
+    if (to === 'submitted' && !TX_HASH.test(String(detail?.txHash ?? ''))) {
+      throw new PlanError('missing_tx_hash', 'submitted requires detail.txHash')
     }
     await tx.insert(planEvents).values({ planId, planVersion: version, status: to, detail: detail ?? null })
     return to

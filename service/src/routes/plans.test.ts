@@ -115,6 +115,21 @@ describe('POST /:id/events', () => {
     expect(((await res.json()) as { error: string }).error).toBe('illegal_transition')
   })
 
+  it('requires a transaction hash to submit, and keeps it', async () => {
+    const plan = planFor(alice)
+    await createPlan(db, { plan })
+    await transition(db, { userId: alice, planId: plan.id, version: 1, to: 'awaiting_signature' })
+
+    expect((await post(alice, `/${plan.id}/events`, { version: 1, status: 'submitted' })).status).toBe(400)
+    expect((await post(alice, `/${plan.id}/events`, { version: 1, status: 'submitted', detail: { txHash: '0x12' } })).status).toBe(400)
+
+    const tx = `0x${'cd'.repeat(32)}`
+    const ok = await post(alice, `/${plan.id}/events`, { version: 1, status: 'submitted', detail: { txHash: tx } })
+    expect(ok.status).toBe(200)
+    const [last] = await db.select().from(schema.planEvents).orderBy(schema.planEvents.seq).offset(2)
+    expect(last!.detail).toEqual({ txHash: tx })
+  })
+
   it('refuses statuses a browser may not write', async () => {
     const plan = planFor(alice)
     await createPlan(db, { plan })

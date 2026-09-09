@@ -5,6 +5,7 @@ export {
   type PlanRecord,
   type PlanSummary,
   type ResolvedReview,
+  TX_HASH,
   type TransitionInput,
   createPlan,
   findPlan,
