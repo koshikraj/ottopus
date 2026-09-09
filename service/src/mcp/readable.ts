@@ -47,6 +47,15 @@ export function canSign(arm: Pick<Arm, 'isWatchOnly' | 'provedAt'>): boolean {
   return !arm.isWatchOnly && arm.provedAt !== null
 }
 
+/**
+ * A wallet's name where several may appear side by side. A label is unique
+ * enough on its own; a fallback like "Watch Only" is not — two pasted
+ * addresses would both be called that — so the fallback carries the address.
+ */
+export function holderName(arm: Pick<Arm, 'label' | 'walletType' | 'address'>): string {
+  return arm.label ? arm.label : `${walletName(arm)} ${truncateAddress(arm.address)}`
+}
+
 export function describeWallet(arm: Arm): string {
   const signing = arm.isWatchOnly
     ? 'watch only, cannot sign'
@@ -188,7 +197,7 @@ export function summarisePortfolio(
       value: row.value,
       wallets: holdersOf(row.holdings, row.asset.decimals, (id) => {
         const known = byId.get(id)
-        return known ? walletName(known) : truncateAddress(id)
+        return known ? holderName(known) : truncateAddress(id)
       }),
     })),
     omitted: Math.max(0, sorted.length - shown.length),

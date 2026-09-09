@@ -161,6 +161,18 @@ describe('a portfolio in words', () => {
     expect(usdc!.wallets).toEqual([{ id: 'w1', name: 'Main', amount: '816.91' }])
   })
 
+  it('tells two unlabelled wallets apart by their address', () => {
+    const unlabelled = [
+      arm({ id: 'w1', label: null, walletType: 'watch_only', address: '0x1111000000000000000000000000000000001111' }),
+      arm({ id: 'w2', label: null, walletType: 'watch_only', address: '0x2222000000000000000000000000000000002222' }),
+    ]
+    const [eth] = summarisePortfolio(portfolio, unlabelled, 1).assets
+    expect(eth!.wallets.map((w) => w.name)).toEqual([
+      'Watch Only 0x1111…1111',
+      'Watch Only 0x2222…2222',
+    ])
+  })
+
   it('names wallets by their label, and counts what it cut', () => {
     const summary = summarisePortfolio(portfolio, arms, 1)
     expect(summary.wallets.map((w) => w.name)).toEqual(['Main', 'Cold'])
