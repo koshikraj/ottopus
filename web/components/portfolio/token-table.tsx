@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { Button, Dialog } from '@/components/ui'
-import type { Portfolio, AssetRow } from '@/lib/api'
+import { armName } from '@/components/wallets/naming'
+import type { Arm, Portfolio, AssetRow } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { formatAmount, formatMoneyFlat, formatShare } from '@/lib/format'
 import { AssetIcon } from './asset-icon'
@@ -23,6 +24,62 @@ export interface TokenTableProps {
   rows: readonly AssetRow[]
   chains: Portfolio['chains']
   currency?: string
+  /** The arms, so a holding's walletId becomes a name and a mark. */
+  wallets?: readonly Arm[]
+  /** Wallet logos by lowercased address, from the connected browser wallets. */
+  walletIcons?: ReadonlyMap<string, string>
+}
+
+/** What a row knows about a wallet: enough to name it and draw it. */
+interface WalletRef {
+  id: string
+  name: string
+  icon: string | null
+}
+
+/**
+ * The wallets holding some part of a token, most first, summed across position
+ * types — a wallet with 1 ETH loose and 0.5 staked holds 1.5 here.
+ */
+function holdersOf(
+  holdings: readonly { walletId: string; amount: string }[],
+  lookup: ReadonlyMap<string, WalletRef>,
+): (WalletRef & { amount: bigint })[] {
+  const sums = new Map<string, bigint>()
+  for (const holding of holdings) {
+    sums.set(holding.walletId, (sums.get(holding.walletId) ?? 0n) + BigInt(holding.amount))
+  }
+  return [...sums]
+    .sort((a, b) => (b[1] > a[1] ? 1 : b[1] < a[1] ? -1 : 0))
+    .map(([id, amount]) => ({
+      ...(lookup.get(id) ?? { id, name: 'Unlinked wallet', icon: null }),
+      amount,
+    }))
+}
+
+/**
+ * Who holds it, on the row: one wallet by name, several by count. The marks
+ * overlap the way the network strip does, so a row reads "which chains, which
+ * wallets" in two matching lines rather than two vocabularies.
+ */
+function WalletStrip({ holders }: { holders: readonly WalletRef[] }) {
+  if (holders.length === 0) return null
+  const label = holders.length === 1 ? holders[0]!.name : `across ${holders.length} wallets`
+  return (
+    <span
+      title={holders.map((wallet) => wallet.name).join(', ')}
+      className="flex min-w-0 items-center gap-1.5 text-[10px] text-[var(--ot-text-3)]"
+    >
+      <span aria-hidden className="isolate flex -space-x-1">
+        {holders.slice(0, 4).map((wallet, index) => (
+          <span key={wallet.id} className="relative" style={{ zIndex: 4 - index }}>
+            <AssetIcon url={wallet.icon} name={wallet.name} size={14} className="ring-2 ring-[var(--ot-card)]" />
+          </span>
+        ))}
+      </span>
+      <span className="truncate">{label}</span>
+    </span>
+  )
 }
 
 function heldAs(row: TokenGroup): string | null {
@@ -50,9 +107,16 @@ function Balance({ amount, decimals, symbol, label, subdued = false }: {
   )
 }
 
-export function TokenTable({ rows, chains, currency = 'usd' }: TokenTableProps) {
+export function TokenTable({ rows, chains, currency = 'usd', wallets = [], walletIcons }: TokenTableProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const networks = useMemo(() => new Map(chains.map((chain) => [chain.chainId, chain])), [chains])
+  const walletRefs = useMemo(
+    () => new Map<string, WalletRef>(wallets.map((arm) => [
+      arm.id,
+      { id: arm.id, name: armName(arm), icon: walletIcons?.get(arm.address.toLowerCase()) ?? null },
+    ])),
+    [wallets, walletIcons],
+  )
   const tokens = useMemo(() => groupTokens(rows), [rows])
   const selected = tokens.find((token) => token.id === selectedId)
   const selectedSymbol = selected?.asset.symbol || selected?.asset.name || 'Token'
@@ -105,6 +169,7 @@ export function TokenTable({ rows, chains, currency = 'usd' }: TokenTableProps) 
                   </span>
                   {token.networks.length > 4 ? <span aria-hidden className="font-medium">+{token.networks.length - 4}</span> : null}
                 </button>
+                <WalletStrip holders={holdersOf(token.holdings, walletRefs)} />
                 {held ? <span title={held} className="truncate text-[10px] text-[var(--ot-text-3)]">{held}</span> : null}
               </div>
             </div>
@@ -176,6 +241,17 @@ export function TokenTable({ rows, chains, currency = 'usd' }: TokenTableProps) 
                 <dt className="text-[var(--ot-text-3)]">Spendable</dt>
                 <dd className="min-w-0 text-right break-all font-mono text-[var(--ot-text-2)]">{exactAmount(balance.spendable, selected.asset.decimals)} {selectedSymbol}</dd>
               </dl>
+              {/* Which wallets, on this network. The section's balance is their
+                  sum, and the one a transfer would come from is one of these. */}
+              <ul className="mt-2.5 flex list-none flex-col gap-1.5 border-t border-[var(--ot-border)] p-0 pt-2.5">
+                {holdersOf(selected.holdings.filter((holding) => holding.chainId === balance.chainId), walletRefs).map((wallet) => (
+                  <li key={wallet.id} className="flex items-center gap-2 text-[12px]">
+                    <AssetIcon url={wallet.icon} name={wallet.name} size={18} />
+                    <span className="min-w-0 flex-1 truncate">{wallet.name}</span>
+                    <span className="shrink-0 font-mono text-[var(--ot-text-2)]">{exactAmount(wallet.amount.toString(), selected.asset.decimals)} {selectedSymbol}</span>
+                  </li>
+                ))}
+              </ul>
             </section>
           )
         })}
