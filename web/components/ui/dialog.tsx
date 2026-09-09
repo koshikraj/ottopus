@@ -94,9 +94,10 @@ export function Dialog({
 
   // showModal() makes the background inert but does not stop it scrolling.
   //
-  // Two elements, because the page has two scrollers depending on width: the
-  // document below lg, and #main at lg where the shell pins the sidebar. main
-  // carries scrollbar-gutter: stable, so flipping it to hidden shifts nothing.
+  // Both the document and #main: inside the app frame main is the scroller and
+  // the document never moves, but the public pages have no frame and scroll the
+  // document. main carries scrollbar-gutter: stable, so flipping it to hidden
+  // shifts nothing.
   useEffect(() => {
     if (!open) return
     const scrollers = [document.body, document.getElementById('main')].filter(
