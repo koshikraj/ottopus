@@ -116,6 +116,37 @@ describe('resolveTransferWallet', () => {
     expect(reasons.Daily).toBe('holds 600 USDC on Base, less than Trading (…0003)')
   })
 
+  /** 1 ETH + 1 wei against 2 ETH. A modulus tie-break got this wrong once. */
+  it('compares whole balances, not a wrapped slice of them', () => {
+    const out = resolveTransferWallet({
+      intent: ethIntent,
+      candidates: [
+        wallet(1, { label: 'One', assetBalance: 10n ** 18n + 1n, gasBalance: 10n ** 18n + 1n }),
+        wallet(2, { label: 'Two', assetBalance: 2n * 10n ** 18n, gasBalance: 2n * 10n ** 18n }),
+      ],
+      asset: ETH,
+      native: true,
+    })
+    if (!out.ok) throw new Error(out.reasons.join())
+    expect(out.walletId).toBe('w2')
+    expect(out.resolution.reason).toMatch(/holds 2 ETH on Base/)
+    expect(out.resolution.candidatesConsidered[0]!.reason).toBe('holds 1 ETH on Base, less than Two (…0002)')
+  })
+
+  it('lets a penalty outweigh any balance', () => {
+    const out = resolveTransferWallet({
+      intent: usdcIntent,
+      candidates: [
+        wallet(1, { label: 'Daily', assetBalance: 600_000_000n }),
+        wallet(2, { label: 'Vault', assetBalance: 10n ** 30n }),
+      ],
+      asset: USDC,
+      native: false,
+    })
+    if (!out.ok) throw new Error(out.reasons.join())
+    expect(out.walletId).toBe('w1')
+  })
+
   it('honours a chosen wallet and only checks it can', () => {
     const chosen = wallet(2, { label: 'Second', assetBalance: 700_000_000n })
     const out = resolveTransferWallet({

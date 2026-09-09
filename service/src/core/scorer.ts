@@ -162,10 +162,18 @@ function scoreTransfer(c: WalletCandidate): Scored {
     score -= WEIGHTS.preferenceReserved
     notes.push(`is labelled ${c.label}, which reads as not for everyday sends`)
   }
-  // The tie-break: a larger balance. A tiny fraction of a point per unit of
-  // the asset, so it decides between equals and never outweighs a penalty.
-  score += Number(c.assetBalance % 1_000_000_000_000n) * 1e-15
   return { candidate: c, score, notes }
+}
+
+/**
+ * Higher score first; between equal scores, the larger balance. The balance
+ * is compared whole, as a bigint — never folded into the score as a number,
+ * where 10^18 loses precision and a modulus would wrap.
+ */
+function byScoreThenBalance(a: Scored, b: Scored): number {
+  if (a.score !== b.score) return b.score - a.score
+  if (a.candidate.assetBalance === b.candidate.assetBalance) return 0
+  return a.candidate.assetBalance > b.candidate.assetBalance ? -1 : 1
 }
 
 /**
@@ -213,7 +221,7 @@ export function resolveTransferWallet({ intent, candidates, asset, native }: Sco
     }
   }
 
-  eligible.sort((a, b) => b.score - a.score)
+  eligible.sort(byScoreThenBalance)
   const winner = eligible[0]!
   for (const s of eligible.slice(1)) {
     losers.push({
