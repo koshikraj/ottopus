@@ -10,6 +10,18 @@
 
 const BASE = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8787/api').replace(/\/$/, '')
 
+/**
+ * The MCP endpoint people paste into an agent.
+ *
+ * Derived from the API base rather than configured twice: the two surfaces are
+ * one service, and a deployment that got them out of step would hand out an
+ * address nothing is listening on. Overridable for the production split, where
+ * they are genuinely different hostnames.
+ */
+export const MCP_URL = (
+  process.env.NEXT_PUBLIC_MCP_URL ?? BASE.replace(/\/api$/, '/mcp')
+).replace(/\/$/, '')
+
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -221,6 +233,68 @@ export function getPortfolio(credentials: Credentials): Promise<Portfolio> {
  * the row on a first ever sign-in. Idempotent, so calling it again on every
  * cold boot is the intended use rather than a waste.
  */
+/**
+ * A grant an agent is asking for, as the consent page shows it.
+ *
+ * The wording of each permission comes from the service rather than living
+ * here: the words describing a scope and the scope itself have to change
+ * together, and a second copy in this package is how they stop agreeing.
+ */
+export interface ConsentGrant {
+  request: { id: string; expiresAt: string }
+  client: { name: string; uri: string | null; redirectHost: string }
+  resource: string
+  granted: { scope: string; title: string; detail: string }[]
+  neverGranted: { title: string; detail: string }
+}
+
+export function readConsent(credentials: Credentials, id: string): Promise<ConsentGrant> {
+  return call<ConsentGrant>(`/oauth/consent/${encodeURIComponent(id)}`, credentials)
+}
+
+/**
+ * Answer it. Both answers return somewhere to go — a denial has to reach the
+ * agent's callback too, or the agent waits on a flow that already ended.
+ */
+export function decideConsent(
+  credentials: Credentials,
+  id: string,
+  approved: boolean,
+): Promise<{ redirectTo: string }> {
+  return call<{ redirectTo: string }>(`/oauth/consent/${encodeURIComponent(id)}`, credentials, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ approved }),
+  })
+}
+
+/**
+ * An agent holding a grant, as Settings shows it.
+ *
+ * A grant, not a token: tokens rotate hourly, so "connected since" would drift
+ * and revoking would have to chase every one. Revoked grants come back too —
+ * losing one silently would make revocation feel like it might not have worked.
+ */
+export interface AgentGrant {
+  id: string
+  name: string
+  uri: string | null
+  /** The callbacks it registered — what tells a terminal from a hosted client. */
+  redirectUris: string[]
+  grantedAt: string
+  lastUsedAt: string | null
+  revokedAt: string | null
+  scopes: { scope: string; title: string; detail: string }[]
+}
+
+export function listAgents(credentials: Credentials): Promise<{ agents: AgentGrant[] }> {
+  return call<{ agents: AgentGrant[] }>('/agents', credentials)
+}
+
+export function revokeAgent(credentials: Credentials, id: string): Promise<void> {
+  return call<void>(`/agents/${encodeURIComponent(id)}`, credentials, { method: 'DELETE' })
+}
+
 export function establishSession(credentials: Credentials): Promise<{ user: SessionUser }> {
   return call('/session', credentials, { method: 'POST' })
 }
