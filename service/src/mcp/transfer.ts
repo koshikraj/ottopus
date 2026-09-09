@@ -12,7 +12,7 @@ import {
   chainName,
   findChain,
   isNativeAsset,
-  nativeAssetOf,
+  nativeAssetIdOf,
   parseAccountId,
   parseAssetId,
   planDraftSchema,
@@ -122,9 +122,13 @@ function holdingOf(portfolio: Portfolio | null, assetId: string, walletId: strin
 }
 
 /** Every EVM wallet, as a candidate on the intent's chain. */
-function candidatesFrom(arms: readonly Arm[], intent: TransferIntent, portfolio: Portfolio | null): WalletCandidate[] {
+function candidatesFrom(
+  arms: readonly Arm[],
+  intent: TransferIntent,
+  portfolio: Portfolio | null,
+  gasAsset: string,
+): WalletCandidate[] {
   const chain = sourceChainOf(intent)
-  const gasAsset = nativeAssetOf(chain)
   return arms
     .filter((arm) => arm.namespace === 'eip155')
     .map((arm) => ({
@@ -156,14 +160,29 @@ export async function prepareTransfer(
     amount: input.amount,
     to: input.to,
     ...(input.fromAccount ? { fromAccount: input.fromAccount } : {}),
+    ...(input.note?.trim() ? { note: input.note.trim() } : {}),
   })
   if (!parsed.success) {
     return { kind: 'invalid', reasons: parsed.error.issues.map((i) => `${i.path.join('.') || 'intent'}: ${i.message}`) }
   }
   const intent = parsed.data
   const chain = sourceChainOf(intent)
+  const chainId = `${chain.namespace}:${chain.reference}`
   if (!findChain(chain)) {
-    return { kind: 'invalid', reasons: [`chain ${chain.namespace}:${chain.reference} is not one Ottopus knows`] }
+    return { kind: 'invalid', reasons: [`chain ${chainId} is not one Ottopus knows`] }
+  }
+  // Gas is paid in the chain's own currency, so a transfer needs its name.
+  // A chain whose coin type is not on file is refused here, in a sentence,
+  // rather than three steps later as an exception.
+  const gasAsset = nativeAssetIdOf(chain)
+  if (!gasAsset) {
+    return {
+      kind: 'invalid',
+      reasons: [
+        `${chainName(chain)} (${chainId}) is not supported for transfers yet: Ottopus cannot name its native currency, ` +
+          'so it cannot check for gas. Base, Ethereum, Arbitrum, Optimism, Polygon and BNB Chain are supported.',
+      ],
+    }
   }
 
   // Balances decide eligibility. Without a provider nothing can be known
@@ -178,7 +197,7 @@ export async function prepareTransfer(
   )
   const asset = assetWords(intent, portfolio)
   const native = isNativeAsset(intent.asset)
-  const chosen = resolveTransferWallet({ intent, candidates: candidatesFrom(arms, intent, portfolio), asset, native })
+  const chosen = resolveTransferWallet({ intent, candidates: candidatesFrom(arms, intent, portfolio, gasAsset), asset, native })
   if (!chosen.ok) return { kind: 'no_wallet', reasons: chosen.reasons }
 
   const call = buildTransferCall(intent)
@@ -196,7 +215,7 @@ export async function prepareTransfer(
     quote: { provider: 'ottopus', expiresAt },
     humanPlan: {
       summary,
-      steps: [summary],
+      steps: [summary, ...(intent.note ? [`Note from the request: ${intent.note}`] : [])],
       // Gas is estimated by simulation (#23); until then the page says so.
       feesUsd: 'unknown',
       warnings: [],
