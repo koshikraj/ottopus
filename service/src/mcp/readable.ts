@@ -153,6 +153,8 @@ export interface PortfolioSummary {
      */
     assetId: string
     chainId: string
+    /** So "100k" can become base units without guessing that every token has 18. */
+    decimals: number
     amount: string
     value: number
     /**
@@ -255,6 +257,7 @@ export function summarisePortfolio(
       chain: chains.get(row.chainId) ?? row.chainId,
       assetId: row.assetId,
       chainId: row.chainId,
+      decimals: row.asset.decimals,
       amount: humanAmount(row.amount, row.asset.decimals),
       value: row.value,
       wallets: holdersOf(row.holdings, row.asset.decimals, nameOf),

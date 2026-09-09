@@ -284,6 +284,7 @@ describe('asset ids for the agent', () => {
     for (const row of summary.assets) {
       expect(row.assetId).toMatch(/^eip155:\d+\/(erc20|slip44):/)
       expect(row.chainId).toMatch(/^eip155:\d+$/)
+      expect(Number.isInteger(row.decimals)).toBe(true)
     }
     const words = portfolioText(summary)
     expect(words).toContain(`[${summary.assets[0]!.assetId}]`)
