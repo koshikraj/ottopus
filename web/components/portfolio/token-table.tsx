@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { Button, Dialog } from '@/components/ui'
-import { armName } from '@/components/wallets/naming'
+import { armName, walletMark } from '@/components/wallets/naming'
 import type { Arm, Portfolio, AssetRow } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { formatAmount, formatMoneyFlat, formatShare } from '@/lib/format'
@@ -31,8 +31,6 @@ export interface TokenTableProps {
   currency?: string
   /** The arms, so a holding's walletId becomes a name and a mark. */
   wallets?: readonly Arm[]
-  /** Wallet logos by lowercased address, from the connected browser wallets. */
-  walletIcons?: ReadonlyMap<string, string>
 }
 
 /** What a row knows about a wallet: enough to name it and draw it. */
@@ -46,16 +44,16 @@ interface WalletRef {
 }
 
 /**
- * A wallet's mark, in three forms: the software's own logo when the browser
- * has one; an eye for a watch-only address nobody named, because "watched,
- * not held" is the one fact about it; else the first letter of the name the
- * person gave it. One glyph per circle — AssetIcon's two-letter fallback sat
- * off the baseline beside real images, and read as a ticker rather than a
- * wallet.
+ * A wallet's mark, in three forms: the client's bundled mark (public/wallets,
+ * keyed by the type stored on the arm — the same on every device); an eye for
+ * a watch-only address, because "watched, not held" is the fact about it that
+ * matters, whatever it is called; else the first letter of its name, for a
+ * client we have no mark for. One glyph per circle — AssetIcon's two-letter
+ * fallback sat off the baseline beside real images and read as a ticker.
  */
 function WalletMark({ wallet, size, className }: { wallet: WalletRef; size: number; className?: string }) {
-  if (wallet.icon) return <AssetIcon url={wallet.icon} name={wallet.name} size={size} className={className} />
-  const eye = wallet.watchOnly && !wallet.label
+  const eye = wallet.watchOnly
+  if (wallet.icon && !eye) return <AssetIcon url={wallet.icon} name={wallet.name} size={size} className={className} />
   return (
     <span aria-hidden style={{ width: size, height: size }}
       className={cn('inline-flex shrink-0 items-center justify-center rounded-full bg-[var(--ot-surface-3)] font-semibold leading-none text-[var(--ot-text-2)] ring-1 ring-[var(--ot-border)]', className)}>
@@ -150,7 +148,7 @@ function Balance({ amount, decimals, symbol, label }: {
   )
 }
 
-export function TokenTable({ rows, chains, currency = 'usd', wallets = [], walletIcons }: TokenTableProps) {
+export function TokenTable({ rows, chains, currency = 'usd', wallets = [] }: TokenTableProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const networks = useMemo(() => new Map(chains.map((chain) => [chain.chainId, chain])), [chains])
   const walletRefs = useMemo(
@@ -159,12 +157,12 @@ export function TokenTable({ rows, chains, currency = 'usd', wallets = [], walle
       {
         id: arm.id,
         name: armName(arm),
-        icon: walletIcons?.get(arm.address.toLowerCase()) ?? null,
+        icon: walletMark(arm.walletType),
         label: arm.label,
         watchOnly: arm.isWatchOnly,
       },
     ])),
-    [wallets, walletIcons],
+    [wallets],
   )
   const tokens = useMemo(() => groupTokens(rows), [rows])
   const selected = tokens.find((token) => token.id === selectedId)
