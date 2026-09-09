@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { httpLookups } from './lookups.js'
+import { RpcReadError, httpLookups } from './lookups.js'
 
 /**
  * The caching policy, with fetch answered from memory. Answers are kept;
@@ -73,5 +73,29 @@ describe('4byte cache', () => {
     expect(await lookups.fourByte('0xa9059cbb')).toEqual(['transfer(address,uint256)'])
     expect(await lookups.fourByte('0xa9059cbb')).toEqual(['transfer(address,uint256)'])
     expect(calls()).toBe(2)
+  })
+})
+
+describe('rpc errors', () => {
+  /**
+   * The template carries the API key. viem's error carries the URL. The two
+   * must never meet in a log line, so the error that leaves here has the
+   * chain and the provider's reason and nothing else.
+   */
+  it('never carries the provider URL or the key', async () => {
+    const template = 'https://{network}.g.alchemy.com/v2/SECRET-KEY-VALUE'
+    let asked = 0
+    const doFetch = (async () => {
+      asked += 1
+      return new Response(JSON.stringify({ jsonrpc: '2.0', id: 1, error: { code: -32600, message: 'Must be authenticated!' } }), { status: 401 })
+    }) as typeof fetch
+    const lookups = httpLookups({ rpcUrlTemplate: template, fetch: doFetch, rpcTimeoutMs: 2_000 })
+    const attempt = lookups.getCode('eip155:8453', '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913')
+    await expect(attempt).rejects.toBeInstanceOf(RpcReadError)
+    expect(asked).toBeGreaterThan(0)
+    const message = await attempt.catch((e: Error) => e.message)
+    expect(message).toMatch(/could not read eip155:8453/)
+    expect(message).not.toContain('SECRET-KEY-VALUE')
+    expect(message).not.toContain('alchemy.com')
   })
 })

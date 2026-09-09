@@ -21,6 +21,23 @@ export interface Lookups {
   fourByte(selector: string): Promise<string[]>
 }
 
+/**
+ * A chain could not be read. Carries the chain and the provider's one-line
+ * reason and nothing else: viem's own error prints the request URL, and with
+ * a provider template that URL has the API key in it. An error that reaches
+ * a log line or an MCP response must never carry the key.
+ */
+export class RpcReadError extends Error {
+  readonly chainId: string
+  constructor(chainId: string, cause: unknown) {
+    const details = (cause as { details?: unknown })?.details
+    const reason = typeof details === 'string' && details ? details : cause instanceof Error ? cause.name : 'unknown error'
+    super(`could not read ${chainId}: ${reason}`)
+    this.name = 'RpcReadError'
+    this.chainId = chainId
+  }
+}
+
 export interface HttpLookupOptions {
   rpcUrlTemplate?: string | undefined
   sourcifyUrl?: string
@@ -90,10 +107,14 @@ export function httpLookups(options: HttpLookupOptions = {}): Lookups {
     async getCode(chainId, address) {
       const client = createPublicClient({
         chain: viemChainFor(chainId),
-        transport: http(rpcUrlFor(chainId, options.rpcUrlTemplate), { timeout: rpcTimeout }),
+        transport: http(rpcUrlFor(chainId, options.rpcUrlTemplate), { timeout: rpcTimeout, fetchFn: doFetch }),
       })
-      const code = await client.getCode({ address: address as Hex })
-      return code ?? '0x'
+      try {
+        const code = await client.getCode({ address: address as Hex })
+        return code ?? '0x'
+      } catch (err) {
+        throw new RpcReadError(chainId, err)
+      }
     },
 
     async sourcify(chainId, address) {
