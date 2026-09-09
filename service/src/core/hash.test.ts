@@ -92,6 +92,22 @@ describe('assemble and parse', () => {
     expect(plan.simulation).toBeNull()
   })
 
+  /**
+   * Parsing normalises calldata to lowercase. A hash taken before that would
+   * bind the plan to bytes that are never stored, and the plan would fail its
+   * own integrity check on the way back out.
+   */
+  it('hashes the normalised draft, so a raw draft still round-trips', () => {
+    const raw = {
+      ...draft,
+      outcome: { type: 'calls' as const, calls: [{ ...draft.outcome.type === 'calls' ? draft.outcome.calls[0]! : {}, data: '0xABCD' }] },
+    } as PlanDraft
+    const plan = assemblePlan(raw)
+    expect(plan.outcome.type === 'calls' && plan.outcome.calls[0]!.data).toBe('0xabcd')
+    expect(() => parsePlan(plan)).not.toThrow()
+    expect(plan.planHash).toBe(planHashOf(planDraftSchema.parse(raw)))
+  })
+
   it('round-trips through parsePlan', () => {
     const plan = assemblePlan(draft)
     expect(parsePlan(JSON.parse(JSON.stringify(plan)))).toEqual(plan)

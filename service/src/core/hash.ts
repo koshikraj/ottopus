@@ -4,6 +4,7 @@ import {
   type Plan,
   type PlanDraft,
   type Simulation,
+  planDraftSchema,
   planSchema,
 } from './plan.js'
 
@@ -96,14 +97,19 @@ export interface Evidence {
 }
 
 /**
- * A draft becomes a plan: hashed, with its evidence attached. The result is
- * re-validated so a draft that was never parsed cannot smuggle a field past
- * the strict schema on its way to storage.
+ * A draft becomes a plan: hashed, with its evidence attached.
+ *
+ * The draft is parsed before it is hashed, not after. Parsing normalises —
+ * calldata is lowercased, for one — and a hash taken over the raw input would
+ * not match the normalised plan that comes out the other side, so parsePlan
+ * would reject the very plan this function just built. Hash what will be
+ * stored, never what was handed in.
  */
 export function assemblePlan(draft: PlanDraft, evidence: Evidence = {}): Plan {
+  const normalised = planDraftSchema.parse(draft)
   return planSchema.parse({
-    ...draft,
-    planHash: planHashOf(draft),
+    ...normalised,
+    planHash: planHashOf(normalised),
     decodedActions: evidence.decodedActions ?? [],
     simulation: evidence.simulation ?? null,
   })
