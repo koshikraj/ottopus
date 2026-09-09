@@ -78,6 +78,13 @@ export const transferIntentSchema = z
     asset: assetIdSchema,
     amount: amountSchema,
     to: accountIdSchema,
+    /**
+     * The name the recipient was given as — "koshik.eth" — when `to` came
+     * from resolving one. Hashed with the rest, so the page shows the name
+     * next to the address it resolved to, and a plan cannot be re-pointed
+     * while still claiming the name.
+     */
+    toName: z.string().trim().min(1).max(255).optional(),
   })
   .refine(
     (v) =>
