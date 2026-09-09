@@ -136,6 +136,33 @@ describe('decodeCall', () => {
     expect(action.function).toBe('stake(uint256,address)')
   })
 
+  /** vitalik.eth on Base has a 7702 delegation; a wallet with code is still a wallet. */
+  it('reads an EIP-7702 delegated wallet as a wallet, not a contract', async () => {
+    const lookups = fake({
+      async getCode() {
+        return `0xef0100${'ab'.repeat(20)}`
+      },
+    })
+    const action = await decodeCall(call(EOA, '0x', '1'), lookups)
+    expect(action.isContract).toBe(false)
+  })
+
+  it('does not ask 4byte about a verified contract whose ABI lacks the selector', async () => {
+    let asked = false
+    const lookups = fake({
+      async sourcify() {
+        return { abi: CUSTOM_ABI as Abi, name: 'Staking', match: 'match' }
+      },
+      async fourByte() {
+        asked = true
+        return ['CodeIsLawZ95677371()']
+      },
+    })
+    const action = await decodeCall(call(WEIRD, '0xdeadbeef'), lookups)
+    expect(asked).toBe(false)
+    expect(action).toMatchObject({ source: 'unknown', function: 'unknown', verified: true, contractName: 'Staking' })
+  })
+
   it('marks an unknown selector unknown rather than dropping the call', async () => {
     const action = await decodeCall(call(WEIRD, '0xdeadbeef00000000'), fake())
     expect(action).toMatchObject({ source: 'unknown', function: 'unknown', args: [], verified: false })

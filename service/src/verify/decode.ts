@@ -74,10 +74,22 @@ function approvalOf(chainId: string, item: AbiFunction, args: DecodedArgs): Deco
   }
 }
 
+/**
+ * An EIP-7702 delegation designator: 0xef0100 followed by the delegate's
+ * address. A wallet that has one has code, but it is still a wallet — the
+ * person's own account, delegated to a known implementation — and reading it
+ * as an unverified contract would warn on every 7702 recipient.
+ */
+const DELEGATION = /^0xef0100[0-9a-f]{40}$/i
+
+function hasContractCode(code: string): boolean {
+  return code.length > 2 && code !== '0x0' && !DELEGATION.test(code)
+}
+
 export async function decodeCall(call: Call, lookups: Lookups): Promise<DecodedAction> {
   const { address } = parseAccountId(call.to)
   const code = await lookups.getCode(call.chainId, address)
-  const isContract = code !== '0x' && code !== '0x0' && code.length > 2
+  const isContract = hasContractCode(code)
   const base = { target: call.to, isContract, value: call.value }
 
   if (call.data === '0x' || call.data === '') {
@@ -115,6 +127,10 @@ export async function decodeCall(call: Call, lookups: Lookups): Promise<DecodedA
   if (source) {
     const decoded = tryDecode(source.abi, data)
     if (decoded) return finish('sourcify', decoded)
+    // Verified source with no such function: the call hits a fallback, or
+    // nothing. A 4byte name here would be a collision dressed as a decoding,
+    // and worse than "unknown" because it looks like an answer.
+    return { ...base, ...named, source: 'unknown', verified, function: 'unknown', args: [] }
   }
 
   for (const signature of await lookups.fourByte(selector)) {
