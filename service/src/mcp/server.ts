@@ -130,7 +130,9 @@ export function buildServer(ctx: ToolContext, deps: ToolDeps): McpServer {
         permissions.length > 0
           ? `${agentName} may: ${permissions.map((entry) => entry.title.toLowerCase()).join('; ')}.`
           : `${agentName} has a grant with no permissions — it can only call whoami.`,
-        `It can never ${NEVER_GRANTED.title.toLowerCase()} — ${NEVER_GRANTED.detail}`,
+        // The consent screen's own row, minus its "Never granted." lead-in,
+        // which this sentence has already said.
+        `It can never ${NEVER_GRANTED.title.toLowerCase()} — ${NEVER_GRANTED.detail.replace(/^Never granted\.\s*/, '')}`,
       ]
 
       return text(lines.join('\n'), {

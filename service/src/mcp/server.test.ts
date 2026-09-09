@@ -136,7 +136,9 @@ describe('whoami', () => {
 
     expect(words).toContain('Signed in as Koshik Raj (koshik@example.com).')
     expect(words).toContain('Claude may: read your linked wallets; build and simulate requests; send you review links.')
-    expect(words).toContain('It can never sign, submit or move anything')
+    expect(words).toContain(
+      'It can never sign, submit or move anything — Ottopus holds no key and cannot sign for you.',
+    )
   })
 
   it('names only the permissions the grant carries', async () => {
