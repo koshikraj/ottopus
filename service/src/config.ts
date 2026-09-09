@@ -78,6 +78,13 @@ export interface Config {
   zerionApiKey: string | undefined
   /** Overridable so a test or a mock can stand in for the real API. */
   zerionApiUrl: string | undefined
+  /**
+   * One RPC provider for every chain: a URL with `{network}` (Alchemy's name)
+   * or `{chainId}` (the EVM id) in it, substituted per chain. Unset means
+   * viem's public endpoints, which are fine for a laptop and rate-limited for
+   * a demo. Chains the provider does not serve read publicly either way.
+   */
+  rpcUrlTemplate: string | undefined
 }
 
 class ConfigError extends Error {}
@@ -195,6 +202,18 @@ function readUrl(name: string): string | undefined {
   }
 }
 
+/** A provider template has to have somewhere to put the chain id. */
+function readRpcTemplate(name: string): string | undefined {
+  const raw = readOptional(name)
+  if (raw === undefined) return undefined
+  if (!raw.includes('{chainId}') && !raw.includes('{network}')) {
+    throw new ConfigError(
+      `${name} must contain {network} or {chainId}, e.g. https://{network}.g.alchemy.com/v2/KEY`,
+    )
+  }
+  return raw
+}
+
 export function loadConfig(): Config {
   // Read first: the MCP and web URLs default off them.
   const port = readInt('PORT', 8787)
@@ -229,6 +248,7 @@ export function loadConfig(): Config {
     webOrigins,
     zerionApiKey: readOptional('ZERION_API_KEY'),
     zerionApiUrl: readOptional('ZERION_API_URL'),
+    rpcUrlTemplate: readRpcTemplate('RPC_URL_TEMPLATE'),
   }
 }
 
