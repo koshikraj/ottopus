@@ -70,6 +70,73 @@ export function ReviewSkeleton() {
         </div>
         <Skeleton height={11} width="78%" radius={999} sweep={false} className="mx-auto" />
       </div>
+
+      {/* the "Advanced review" expander, on screens too narrow for the panel */}
+      <div className="flex items-center justify-between border-t border-[var(--ot-border)] px-[18px] py-3 min-[1032px]:hidden">
+        <Skeleton width={112} height={13} sweep={false} />
+        <Skeleton width={10} height={10} sweep={false} />
+      </div>
     </article>
+  )
+}
+
+/**
+ * The panel beside the card, in the panel's own shape.
+ *
+ * Drawn while the plan loads for the same reason the card is: at 1032px and
+ * up there are two things on the page, and a loader that shows one of them
+ * makes the second arrive as a surprise. Both folds are drawn shut, because
+ * that is how the real panel rests.
+ */
+export function AdvancedSkeleton() {
+  return (
+    <section
+      aria-busy
+      className="flex flex-col gap-3.5 rounded-[16px] border border-[var(--ot-border)] bg-[var(--ot-card)] px-[18px] py-4"
+    >
+      <Skeleton width={104} height={14} sweep={false} />
+
+      {/* Simulation: heading, the "run again" pill, a note, then block and gas */}
+      <div className="flex flex-col gap-2">
+        <div className="flex items-baseline justify-between gap-2">
+          <Skeleton width={68} height={13} sweep={false} />
+          <Skeleton width={62} height={19} radius={999} sweep={false} />
+        </div>
+        <SkeletonText lines={2} lineHeight={11} widths={['100%', '64%']} label="Loading the simulation" />
+        <div className="flex flex-col gap-1 pt-1">
+          {[0, 1].map((i) => (
+            <div key={i} className="flex items-baseline justify-between gap-3">
+              <Skeleton width={i === 0 ? 34 : 26} height={12} sweep={false} />
+              <Skeleton width={i === 0 ? 62 : 48} height={12} sweep={false} />
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Decoded calls: heading, a note, one call row, two links out */}
+      <div className="flex flex-col gap-2">
+        <Skeleton width={132} height={13} sweep={false} />
+        <Skeleton width="82%" height={11} sweep={false} delay={0.2} />
+        <div className="flex items-center justify-between gap-2.5 rounded-[8px] bg-[var(--ot-water-1)] px-3 py-2.5">
+          <Skeleton width="56%" height={12} sweep={false} />
+          <Skeleton width={52} height={16} radius={999} sweep={false} />
+        </div>
+        <div className="flex flex-col gap-1">
+          <Skeleton width={112} height={11} sweep={false} />
+          <Skeleton width={146} height={11} sweep={false} delay={0.15} />
+        </div>
+      </div>
+
+      {/* the two folds, shut */}
+      {[0, 1].map((i) => (
+        <div key={i} className="flex items-baseline justify-between gap-2">
+          <span className="flex items-baseline gap-2">
+            <Skeleton width={i === 0 ? 62 : 66} height={13} sweep={false} />
+            <Skeleton width={i === 0 ? 128 : 118} height={11} sweep={false} />
+          </span>
+          <Skeleton width={10} height={10} sweep={false} />
+        </div>
+      ))}
+    </section>
   )
 }
