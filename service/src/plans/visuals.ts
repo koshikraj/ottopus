@@ -21,6 +21,10 @@ function assetIdsOf(plan: Plan): string[] {
   const ids = new Set<string>()
   if (plan.intent.kind === 'transfer') ids.add(plan.intent.asset)
   for (const a of plan.humanPlan.assets ?? []) ids.add(a.id)
+  // A simulation can name assets the intent never did — a swap's output, a
+  // token a call moved on the side. Those rows are on the page, so their
+  // icons have to be looked up too.
+  for (const change of plan.simulation?.assetChanges ?? []) ids.add(change.assetId)
   return [...ids]
 }
 
