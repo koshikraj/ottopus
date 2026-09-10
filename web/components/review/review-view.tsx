@@ -54,8 +54,11 @@ function Review({ token }: { token: string }) {
   const simulation = useSimulation(plan, chainId, native)
 
   if (state.status === 'loading') {
+    // `wide` so the loader stands exactly where the card will: a skeleton that
+    // matches the card's shape but not its position still hands the reader a
+    // jump the moment the plan lands.
     return (
-      <Ground>
+      <Ground wide>
         <ReviewSkeleton />
       </Ground>
     )
