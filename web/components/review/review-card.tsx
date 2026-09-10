@@ -133,7 +133,10 @@ export function ReviewCard({ plan, reference, clock, visuals = NO_VISUALS, child
             ) : fact.label === 'Network' ? (
               <Tile mark={chainVisual?.iconUrl ?? null} fallback={fact.value.slice(0, 1)} tone="bg-[var(--ot-surface-3)] text-[var(--ot-text-2)]" />
             ) : null
-          const value = fact.label === 'Signing with' && signerClient && signer?.label ? `${signer.label} · ${signerClient}` : fact.value
+          // "Main · Rabby" with a label; "Rabby" over the address without one.
+          const named = fact.label === 'Signing with' && signerClient
+          const value = named ? (signer?.label ? `${signer.label} · ${signerClient}` : signerClient) : fact.value
+          const detail = named && !signer?.label ? fact.value : fact.detail
           return (
             <div key={fact.label} className="flex items-center justify-between gap-3 border-t border-[var(--ot-border)] py-[11px]">
               <span className="flex min-w-0 items-center gap-2.5">
@@ -142,7 +145,7 @@ export function ReviewCard({ plan, reference, clock, visuals = NO_VISUALS, child
               </span>
               <span className="flex min-w-0 flex-col items-end gap-px text-right">
                 <span className={cn('text-[13.5px] font-semibold', fact.mono && 'font-mono tabular-nums')}>{value}</span>
-                {fact.detail ? <span className="text-[11.5px] text-[var(--ot-text-3)]">{fact.detail}</span> : null}
+                {detail ? <span className="text-[11.5px] text-[var(--ot-text-3)]">{detail}</span> : null}
               </span>
             </div>
           )
