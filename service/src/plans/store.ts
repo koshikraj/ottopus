@@ -1,5 +1,5 @@
-import { and, desc, eq, gt, inArray, isNull, sql } from 'drizzle-orm'
-import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core'
+import { and, desc, eq, gt, inArray, isNull, notExists, sql } from 'drizzle-orm'
+import { type PgDatabase, type PgQueryResultHKT, alias } from 'drizzle-orm/pg-core'
 import {
   type Plan,
   PlanIntegrityError,
@@ -237,9 +237,65 @@ export async function transition(
     if (to === 'submitted' && !TX_HASH.test(String(detail?.txHash ?? ''))) {
       throw new PlanError('missing_tx_hash', 'submitted requires detail.txHash')
     }
-    await tx.insert(planEvents).values({ planId, planVersion: version, status: to, detail: detail ?? null })
+    // The hash lives on the latest event, and confirmed and failed are the
+    // events after submitted. A writer that omits it — the browser does —
+    // must not make the plan forget which transaction it became.
+    const carried = from === 'submitted' && (to === 'confirmed' || to === 'failed') ? latest.detail : null
+    const hash = (carried as Record<string, unknown> | null)?.txHash
+    const written = detail?.txHash === undefined && typeof hash === 'string' ? { ...detail, txHash: hash } : detail
+    await tx.insert(planEvents).values({ planId, planVersion: version, status: to, detail: written ?? null })
     return to
   })
+}
+
+/** How many submitted plans one tick of the receipt job takes on. */
+const SUBMITTED_BATCH = 200
+
+/**
+ * Plans, any user's, whose latest event is `submitted`: what the receipt job
+ * watches. "Latest" is decided in SQL — a submitted event with no later event
+ * for its version — over the partial index on submitted events, so the read
+ * costs what is currently in flight, not what has ever been submitted. Events
+ * are append-only and the table only grows; a query that loaded history to
+ * filter it in memory would grow with it, every ten seconds, until the
+ * driver's parameter limit stopped it.
+ *
+ * Oldest submission first, in a bounded batch. More than a batch in flight
+ * at once means the newest wait a tick or two; the job is not the only
+ * watcher, and the browser has usually written the outcome already.
+ */
+export async function listSubmitted(db: PlanDb): Promise<PlanRecord[]> {
+  const later = alias(planEvents, 'later')
+  const rows = await db
+    .select({
+      plan: plans,
+      status: planEvents.status,
+      createdAt: planEvents.createdAt,
+      detail: planEvents.detail,
+    })
+    .from(planEvents)
+    .innerJoin(plans, and(eq(plans.id, planEvents.planId), eq(plans.version, planEvents.planVersion)))
+    .where(
+      and(
+        eq(planEvents.status, 'submitted'),
+        notExists(
+          db
+            .select({ one: sql`1` })
+            .from(later)
+            .where(
+              and(
+                eq(later.planId, planEvents.planId),
+                eq(later.planVersion, planEvents.planVersion),
+                gt(later.seq, planEvents.seq),
+              ),
+            ),
+        ),
+      ),
+    )
+    .orderBy(planEvents.createdAt)
+    .limit(SUBMITTED_BATCH)
+  const now = new Date()
+  return rows.map((row) => toRecord(row.plan, { status: row.status, createdAt: row.createdAt, detail: row.detail }, now))
 }
 
 /** The plan, at a version or at its latest. Null if it is not this user's. */
