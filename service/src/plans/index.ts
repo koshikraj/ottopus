@@ -10,6 +10,8 @@ export {
   createPlan,
   findPlan,
   listPending,
+  listPlans,
+  byAttentionThenNewest,
   mintReviewToken,
   resolveReviewToken,
   revokeReviewTokens,
