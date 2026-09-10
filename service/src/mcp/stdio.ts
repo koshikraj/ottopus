@@ -2,6 +2,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { findUserById } from '../auth/session.js'
 import { config } from '../config.js'
 import { readPortfolio } from '../connectors/portfolio/index.js'
+import { lifiConnector } from '../connectors/route/index.js'
 import { getDb } from '../db/client.js'
 import { SCOPES } from '../oauth/scopes.js'
 import { createPlan, findPlan, issueReviewLink, recordSimulation, transition } from '../plans/index.js'
@@ -60,12 +61,10 @@ async function main(): Promise<void> {
      * turns it back on, and the pipeline is still tested that way.
      */
     simulator: null,
-    /**
-     * Not wired yet: the routing provider is a vendor decision, and until it
-     * is made prepare_swap says so in a sentence rather than guessing. One
-     * concrete `RouteConnector` goes here.
-     */
-    router: null,
+    router: lifiConnector({
+      apiKey: config.lifiApiKey,
+      ...(config.lifiApiUrl ? { baseUrl: config.lifiApiUrl } : {}),
+    }),
     createPlan: (input) => createPlan(db, input),
     issueReviewLink: (planId, version, planExpiresAt) =>
       issueReviewLink(db, { planId, version, planExpiresAt }, config.webUrl),
