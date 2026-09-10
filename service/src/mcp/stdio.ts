@@ -60,6 +60,12 @@ async function main(): Promise<void> {
      * turns it back on, and the pipeline is still tested that way.
      */
     simulator: null,
+    /**
+     * Not wired yet: the routing provider is a vendor decision, and until it
+     * is made prepare_swap says so in a sentence rather than guessing. One
+     * concrete `RouteConnector` goes here.
+     */
+    router: null,
     createPlan: (input) => createPlan(db, input),
     issueReviewLink: (planId, version, planExpiresAt) =>
       issueReviewLink(db, { planId, version, planExpiresAt }, config.webUrl),
