@@ -63,8 +63,8 @@ describe('filters', () => {
 
   it('offers each wallet with its label and count, busiest first', () => {
     expect(walletOptions(rows)).toEqual([
-      { caip10: 'eip155:8453:0x0000000000000000000000000000000000000001', label: 'Main', count: 3 },
-      { caip10: 'eip155:8453:0x0000000000000000000000000000000000000002', label: '0x0000…0002', count: 1 },
+      { caip10: 'eip155:8453:0x0000000000000000000000000000000000000001', label: 'Main', count: 3, walletType: null },
+      { caip10: 'eip155:8453:0x0000000000000000000000000000000000000002', label: '0x0000…0002', count: 1, walletType: null },
     ])
   })
 

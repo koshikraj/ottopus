@@ -55,6 +55,8 @@ export interface WalletOption {
   caip10: string
   label: string
   count: number
+  /** The client it lives in, when the service knew it. */
+  walletType: string | null
 }
 
 export function walletOptions(rows: readonly PlanSummary[]): WalletOption[] {
@@ -69,6 +71,7 @@ export function walletOptions(rows: readonly PlanSummary[]): WalletOption[] {
         caip10: key,
         label: row.account.label ?? row.wallet?.label ?? `${address.slice(0, 6)}…${address.slice(-4)}`,
         count: 1,
+        walletType: row.wallet?.walletType ?? null,
       })
     }
   }

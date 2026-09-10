@@ -1,14 +1,18 @@
 'use client'
 
 import { useState } from 'react'
+import { Skeleton, SkeletonRow } from '@/components/motion'
 import { AssetIcon } from '@/components/portfolio/asset-icon'
+import { WalletMark, type WalletRef } from '@/components/portfolio/wallet-marks'
 import { StatusChip } from '@/components/ui'
+import { walletMark } from '@/components/wallets/naming'
 import type { PlanSummary } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { formatAmount, formatMoneyFlat, truncateAddress } from '@/lib/format'
+import { WalletFilter } from './wallet-filter'
 import {
   type StatusFilter,
-  type WalletFilter,
+  type WalletFilter as WalletChoice,
   effectiveStatus,
   filterPlans,
   kindWord,
@@ -49,10 +53,10 @@ const STATUS_LABEL: Record<string, string> = {
 
 export function PlanTable({ plans, opening, onOpen, now }: PlanTableProps) {
   const [status, setStatus] = useState<StatusFilter>('all')
-  const [wallet, setWallet] = useState<WalletFilter>('all')
+  const [wallet, setWallet] = useState<WalletChoice>('all')
   const sorted = sortPlans(plans, now)
   const counts = statusCounts(sorted, now)
-  const wallets = walletOptions(sorted)
+  const wallets = walletOptions(sorted).map((w) => ({ ...w, ref: refFor(w.caip10, w.label, w.walletType) }))
   const shown = filterPlans(sorted, status, wallet, now)
 
   return (
@@ -70,25 +74,12 @@ export function PlanTable({ plans, opening, onOpen, now }: PlanTableProps) {
               {STATUS_LABEL[c.status]} <span className="text-[11px] text-[var(--ot-text-3)]">{c.count}</span>
             </Pill>
           ))}
-          {wallets.length > 1 ? (
-            <select
-              aria-label="Filter by wallet"
-              value={wallet}
-              onChange={(e) => setWallet(e.target.value)}
-              className="rounded-[var(--ot-radius-pill)] border border-[var(--ot-border)] bg-[var(--ot-card)] px-3 py-1.5 text-[13px] font-medium text-[var(--ot-text-2)]"
-            >
-              <option value="all">All wallets · {wallets.length}</option>
-              {wallets.map((w) => (
-                <option key={w.caip10} value={w.caip10}>
-                  {w.label} · {w.count}
-                </option>
-              ))}
-            </select>
-          ) : null}
+          <WalletFilter wallets={wallets} value={wallet} onChange={setWallet} />
         </div>
       </header>
 
-      <div className="hidden grid-cols-[minmax(0,1.7fr)_150px_150px_120px] gap-4 px-[22px] py-2.5 text-[12px] text-[var(--ot-text-3)] sm:grid">
+      {/* The same column header the portfolio's token table uses. */}
+      <div className="hidden grid-cols-[minmax(0,1.7fr)_150px_150px_120px] gap-4 px-[22px] pt-1 pb-2 text-[10px] font-semibold tracking-[0.06em] text-[var(--ot-text-2)] uppercase sm:grid">
         <span>Request</span>
         <span className="text-right">Amount</span>
         <span>Status</span>
@@ -115,8 +106,11 @@ function Pill({ active, onClick, children }: { active: boolean; onClick: () => v
       aria-pressed={active}
       onClick={onClick}
       className={cn(
-        'rounded-[var(--ot-radius-pill)] px-3 py-1.5 text-[13px] font-medium transition-colors',
-        active ? 'bg-[var(--ot-surface-2)] text-[var(--ot-text)]' : 'text-[var(--ot-text-3)] hover:bg-[var(--ot-surface-2)] hover:text-[var(--ot-text)]',
+        'cursor-pointer rounded-full border px-3 py-1.5 text-[12px] font-medium transition-colors',
+        'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ot-plan)]',
+        active
+          ? 'border-[var(--ot-border-strong)] bg-[var(--ot-surface-2)] text-[var(--ot-text)]'
+          : 'border-transparent text-[var(--ot-text-3)] hover:bg-[var(--ot-surface-2)] hover:text-[var(--ot-text)]',
       )}
     >
       {children}
@@ -130,11 +124,8 @@ function Row({ row, now, opening, disabled, onOpen }: { row: PlanSummary; now: n
   const symbol = row.asset?.symbol ?? null
   const amount = row.asset && row.asset.decimals !== null ? formatAmount(row.asset.amount, row.asset.decimals, { maxFractionDigits: 4 }) : null
   const walletName = row.account.label ?? row.wallet?.label ?? truncateAddress(row.account.caip10.split(':')[2] ?? '')
-  const detail = [
-    row.recipient ? `${symbol ?? 'Asset'} → ${row.recipient.name ?? truncateAddress(row.recipient.address)}` : row.summary,
-    walletName,
-    `request #${row.id.slice(0, 6)}`,
-  ].join(' · ')
+  const mark = row.wallet ? refFor(row.account.caip10, walletName, row.wallet.walletType) : null
+  const what = row.recipient ? `${symbol ?? 'Asset'} → ${row.recipient.name ?? truncateAddress(row.recipient.address)}` : row.summary
 
   return (
     <li className="border-t border-[var(--ot-border)]">
@@ -161,13 +152,20 @@ function Row({ row, now, opening, disabled, onOpen }: { row: PlanSummary; now: n
           </span>
           <span className="flex min-w-0 flex-col gap-0.5">
             <span className="text-[14px] font-semibold">{kindWord(row.kind)}</span>
-            <span className="truncate text-[12px] text-[var(--ot-text-3)]">{detail}</span>
+            <span className="flex min-w-0 items-center gap-1.5 text-[12px] text-[var(--ot-text-3)]">
+              <span className="truncate">{what}</span>
+              <span aria-hidden>·</span>
+              {mark ? <WalletMark wallet={mark} size={14} className="ring-1 ring-[var(--ot-card)]" /> : null}
+              <span className="truncate">{walletName}</span>
+              <span aria-hidden>·</span>
+              <span className="whitespace-nowrap">#{row.id.slice(0, 6)}</span>
+            </span>
           </span>
         </span>
 
         <span className="flex flex-col gap-0.5 sm:items-end sm:text-right">
           <code className="font-mono text-[14px] font-semibold tabular-nums">
-            {row.valueUsd !== null ? `−$${formatMoneyFlat(row.valueUsd)}` : amount ? `−${amount} ${symbol ?? ''}` : '—'}
+            {row.valueUsd !== null ? `−${formatMoneyFlat(row.valueUsd)}` : amount ? `−${amount} ${symbol ?? ''}` : '—'}
           </code>
           <code className="font-mono text-[12px] text-[var(--ot-text-3)] tabular-nums">
             {row.valueUsd !== null && amount ? `${amount} ${symbol ?? ''}` : ''}
@@ -188,5 +186,39 @@ function Row({ row, now, opening, disabled, onOpen }: { row: PlanSummary; now: n
         </span>
       </button>
     </li>
+  )
+}
+
+/** A wallet, as the portfolio's mark component draws one. */
+function refFor(caip10: string, name: string, walletType: string | null): WalletRef {
+  return {
+    id: caip10,
+    name,
+    icon: walletType ? walletMark(walletType) : null,
+    label: null,
+    watchOnly: walletType === 'watch_only',
+  }
+}
+
+/** The table while the list is being read: the header, then four rows of tide. */
+export function PlanTableSkeleton() {
+  return (
+    <section aria-busy className="overflow-hidden rounded-[18px] border border-[var(--ot-border)] bg-[var(--ot-card)]">
+      <header className="flex items-center justify-between gap-3 px-4 pt-[18px] pb-3.5 sm:px-[22px]">
+        <Skeleton width={120} height={22} radius={6} />
+        <span className="flex gap-2">
+          <Skeleton width={44} height={30} radius={999} delay={0.1} />
+          <Skeleton width={96} height={30} radius={999} delay={0.2} sweep={false} />
+          <Skeleton width={80} height={30} radius={999} delay={0.3} sweep={false} />
+        </span>
+      </header>
+      <div className="flex flex-col">
+        {[0, 1, 2, 3].map((i) => (
+          <div key={i} className="border-t border-[var(--ot-border)] px-4 py-3 sm:px-[22px]">
+            <SkeletonRow avatar={34} label={i === 0 ? 'Loading requests' : null} className={cn(i >= 2 && 'opacity-60')} />
+          </div>
+        ))}
+      </div>
+    </section>
   )
 }

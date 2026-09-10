@@ -6,7 +6,7 @@ import { Otto } from '@/components/brand'
 import { BubbleField } from '@/components/motion'
 import { Button, EmptyState, ErrorState } from '@/components/ui'
 import { ApiError } from '@/lib/api'
-import { PlanTable } from './plan-table'
+import { PlanTable, PlanTableSkeleton } from './plan-table'
 import { useRequests } from './provider'
 import { usePlans } from './use-plans'
 
@@ -48,9 +48,9 @@ export function RequestsView() {
 
   if (state.status === 'loading') {
     return (
-      <p role="status" className="px-6 py-10 text-sm text-[var(--ot-text-2)]">
-        Reading requests…
-      </p>
+      <div className="px-5 py-6 sm:px-[26px]">
+        <PlanTableSkeleton />
+      </div>
     )
   }
   if (state.status === 'failed' && state.plans.length === 0) {
