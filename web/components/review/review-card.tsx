@@ -147,8 +147,25 @@ export function ReviewCard({
           that something is wrong, not what — the reason is in Advanced review.
         */}
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-[var(--ot-text-2)]">
-          {verdict ? (
-            <>
+          <span className="flex items-center gap-1.5">
+            <Tile mark={signerMark} fallback="◈" tone="bg-[var(--ot-navy-soft)] text-[var(--ot-text)]" />
+            <span className="font-semibold">{signerName}</span>
+          </span>
+          <Dot />
+          {/*
+            The verdict sits with the network, not on its own: whether these
+            calls execute is a fact about this chain at this block, and
+            reading them apart invites "executable" to be heard as a property
+            of the plan itself.
+          */}
+          <span className="flex items-center gap-1.5">
+            <Tile
+              mark={chainVisual?.iconUrl ?? null}
+              fallback={chainName(chain).slice(0, 1)}
+              tone="bg-[var(--ot-surface-3)] text-[var(--ot-text-2)]"
+            />
+            <span>{chainName(chain)}</span>
+            {verdict ? (
               <span
                 className={cn(
                   'flex items-center gap-1 rounded-full px-2 py-[3px] text-[11px] font-semibold',
@@ -160,21 +177,7 @@ export function ReviewCard({
                 <span aria-hidden>{verdict.ok ? '✓' : '✕'}</span>
                 {verdict.label}
               </span>
-              <Dot />
-            </>
-          ) : null}
-          <span className="flex items-center gap-1.5">
-            <Tile mark={signerMark} fallback="◈" tone="bg-[var(--ot-navy-soft)] text-[var(--ot-text)]" />
-            <span className="font-semibold">{signerName}</span>
-          </span>
-          <Dot />
-          <span className="flex items-center gap-1.5">
-            <Tile
-              mark={chainVisual?.iconUrl ?? null}
-              fallback={chainName(chain).slice(0, 1)}
-              tone="bg-[var(--ot-surface-3)] text-[var(--ot-text-2)]"
-            />
-            <span>{chainName(chain)}</span>
+            ) : null}
           </span>
           <Dot />
           <span className="text-[var(--ot-text-3)]">
