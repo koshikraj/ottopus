@@ -7,7 +7,9 @@ import { Otto } from '@/components/brand'
 import { StillnessProvider } from '@/components/motion'
 import { Button, Callout, StatusChip } from '@/components/ui'
 import type { Plan, PlanStatusName } from '@/lib/api'
+import { cn } from '@/lib/cn'
 import { decoderUrl } from '@/lib/simulators'
+import { AdvancedPanel } from './advanced-panel'
 import { canSign, chainOfPlan, countdown, effectiveStatus } from './model'
 import { ReviewCard } from './review-card'
 import { ReviewSkeleton } from './review-skeleton'
@@ -89,25 +91,57 @@ function Review({ token }: { token: string }) {
   }
 
   const clock = canSign(status) ? (countdown(plan.expiresAt, now) || 'now') : <StatusChip status={status} />
+  const live = { kind: simulation.state.kind, run: simulation.run, again: () => void simulation.again() }
+  const panelProps = {
+    plan,
+    visuals: visuals ?? { assets: {}, chains: {}, wallets: {} },
+    live,
+    decoderUrl: decoderUrl(plan),
+  }
 
+  /**
+   * Two columns from `lg`, one below it. The card keeps its 440 whatever the
+   * viewport does — it is a phone card by design and does not improve by
+   * stretching — and the space a wide screen has spare goes to the panel
+   * beside it rather than to a longer page.
+   */
   return (
-    <Ground>
-      <ReviewCard
-        plan={plan}
-        reference={reference}
-        clock={clock}
-        visuals={visuals}
-        live={{ kind: simulation.state.kind, run: simulation.run, again: () => void simulation.again() }}
-        visualiseUrl={decoderUrl(plan)}
-      >
-        {canSign(status) ? (
-          <SignPanel plan={plan} move={move} open resimulate={simulation.again} />
-        ) : status === 'submitted' ? (
-          <SignPanel plan={plan} move={move} open={false} txHash={statusDetail?.txHash ?? null} />
-        ) : (
-          <Ended status={status} />
-        )}
-      </ReviewCard>
+    <Ground wide>
+      <div className="flex w-full flex-col items-start gap-4 lg:flex-row lg:justify-center">
+        <div className="w-full min-w-0 lg:max-w-[440px] lg:flex-none">
+          <ReviewCard
+            plan={plan}
+            reference={reference}
+            clock={clock}
+            visuals={visuals}
+            live={live}
+            advanced={
+              <details className="ot-review-details border-t border-[var(--ot-border)]">
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-[18px] py-3 text-[13px] font-semibold [&::-webkit-details-marker]:hidden">
+                  Decoded calls and simulation
+                  <span className="ot-review-caret text-[var(--ot-text-3)]" aria-hidden>
+                    ▾
+                  </span>
+                </summary>
+                <div className="px-[18px]">
+                  <AdvancedPanel {...panelProps} bare />
+                </div>
+              </details>
+            }
+          >
+            {canSign(status) ? (
+              <SignPanel plan={plan} move={move} open resimulate={simulation.again} />
+            ) : status === 'submitted' ? (
+              <SignPanel plan={plan} move={move} open={false} txHash={statusDetail?.txHash ?? null} />
+            ) : (
+              <Ended status={status} />
+            )}
+          </ReviewCard>
+        </div>
+        <aside className="hidden w-[360px] flex-none lg:block">
+          <AdvancedPanel {...panelProps} />
+        </aside>
+      </div>
     </Ground>
   )
 }
@@ -123,11 +157,18 @@ function useClock(running: boolean): number {
   return now
 }
 
-function Ground({ children }: { children: ReactNode }) {
+function Ground({ children, wide = false }: { children: ReactNode; wide?: boolean }) {
   return (
     <StillnessProvider held>
-      <main className="ot-canvas relative flex min-h-dvh items-start justify-center overflow-x-hidden px-0 py-0 sm:items-center sm:px-5 sm:py-11">
-        <div className="relative w-full max-w-[440px]">{children}</div>
+      <main
+        className={cn(
+          'ot-canvas relative flex min-h-dvh justify-center overflow-x-hidden px-0 py-0 sm:px-5 sm:py-11',
+          // A plan sits at the top on a wide screen because the panel beside
+          // it is taller than the card; a dead link is short and centres.
+          wide ? 'items-start' : 'items-start sm:items-center',
+        )}
+      >
+        <div className={cn('relative w-full', wide ? 'max-w-[440px] lg:max-w-[824px]' : 'max-w-[440px]')}>{children}</div>
       </main>
     </StillnessProvider>
   )
