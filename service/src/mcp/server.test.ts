@@ -1,12 +1,13 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { describe, expect, it } from 'vitest'
-import { encodeFunctionData } from 'viem'
+import { encodeFunctionData, maxUint256 } from 'viem'
 import type { Portfolio } from '../connectors/portfolio/index.js'
 import type { CreatePlanInput, PlanRecord } from '../plans/index.js'
 import { PlanError } from '../plans/index.js'
 import { planFor } from '../plans/fixtures.js'
 import { KNOWN_ABI, type Lookups } from '../verify/index.js'
+import { RouteError, type RouteConnector, type RouteQuote } from '../connectors/route/index.js'
 import type { SimulationRun, Simulator } from '../connectors/simulation/index.js'
 import type { Arm } from '../wallets/index.js'
 import { buildServer, type ToolDeps } from './server.js'
@@ -80,11 +81,12 @@ const PORTFOLIO: Portfolio = {
 const USER_ID = '0191a2b3-c4d5-4e6f-8a9b-0c1d2e3f4a5b'
 const USDC = '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913'
 const BASE = 'eip155:8453'
+const ROUTER = '0x2626664c2603336e57b271c5c0b26f421741e481'
 
 /** The decoder's reads, answered from memory: USDC is a verified contract, everything else a wallet. */
 const lookups: Lookups = {
   async getCode(_chain, address) {
-    return address.toLowerCase() === USDC ? '0x6080' : '0x'
+    return [USDC, ROUTER].includes(address.toLowerCase()) ? '0x6080' : '0x'
   },
   async sourcify(_chain, address) {
     return address.toLowerCase() === USDC ? { abi: KNOWN_ABI, name: 'FiatTokenV2_2', match: 'exact_match' } : null
@@ -116,6 +118,8 @@ const deps = (over: Partial<ToolDeps> = {}): ToolDeps => ({
   readPortfolio: async () => PORTFOLIO,
   lookups,
   simulator: null,
+  router: null,
+  tokens: null,
   createPlan: planSink().createPlan,
   issueReviewLink: async (planId, version) => ({
     token: 'tok',
@@ -175,19 +179,21 @@ describe('the tool surface', () => {
     expect(names.filter((name) => /^(sign|send|broadcast|submit)/.test(name))).toEqual([])
   })
 
-  it('offers four read tools and two that write, and says which is which', async () => {
+  it('offers five read tools and three that write, and says which is which', async () => {
     const { client } = await connected()
     const { tools } = await client.listTools()
     expect(tools.map((tool) => tool.name).sort()).toEqual([
       'cancel_plan',
+      'find_asset',
       'get_plan',
       'get_portfolio',
       'list_wallets',
+      'prepare_trade',
       'prepare_transfer',
       'whoami',
     ])
     for (const tool of tools) {
-      const readOnly = !['prepare_transfer', 'cancel_plan'].includes(tool.name)
+      const readOnly = !['prepare_transfer', 'prepare_trade', 'cancel_plan'].includes(tool.name)
       expect(tool.annotations?.readOnlyHint, `${tool.name} read-only=${readOnly}`).toBe(readOnly)
       expect(tool.annotations?.destructiveHint ?? false, `${tool.name} is never destructive`).toBe(false)
     }
@@ -648,6 +654,27 @@ describe('get_plan', () => {
     expect(result.content[0]!.text).toContain('Confirmed on Base: Send 1000 wei to vitalik.eth went through.')
     expect(result.content[0]!.text).toContain(`Explorer: https://basescan.org/tx/${TX}`)
 
+    const crossing = onRecord({
+      status: 'confirmed',
+      statusDetail: { txHash: TX },
+      plan: planFor(USER_ID, {
+        status: 'confirmed',
+        intent: { kind: 'bridge', from: `${BASE}/erc20:${USDC}`, to: 'eip155:1/slip44:60', amountIn: '1000' },
+        resolution: {
+          account: { caip10: `${BASE}:0x0000000000000000000000000000000000000001` },
+          candidatesConsidered: [],
+          reason: 'only funded account',
+        },
+        outcome: { type: 'calls', calls: [{ to: `${BASE}:${USDC}`, value: '0', data: '0xdeadbeef', chainId: BASE }] },
+      }),
+    })
+    ;({ client } = await connected(undefined, { findPlan: async () => crossing }, { grantId: 'grant-1' }))
+    result = await call(client, 'get_plan', { planId: crossing.plan.id })
+    // Source confirmed is not arrival, and the one place that must not be fudged.
+    expect(result.content[0]!.text).toContain('the funds have left')
+    expect(result.content[0]!.text).toContain('arrive on Ethereum')
+    expect(result.content[0]!.text).not.toContain('went through')
+
     const failed = onRecord({ status: 'failed', statusDetail: { txHash: TX, reason: 'reverted' } })
     ;({ client } = await connected(undefined, { findPlan: async () => failed }, { grantId: 'grant-1' }))
     result = await call(client, 'get_plan', { planId: failed.plan.id })
@@ -921,5 +948,291 @@ describe('prepare_transfer with a simulation', () => {
     expect(res.isError).toBeFalsy()
     expect(sink.created[0]!.plan.status).toBe('awaiting_review')
     expect(sink.created[0]!.plan.simulation).toBeNull()
+  })
+})
+
+/**
+ * A router whose answer the test dictates.
+ *
+ * prepare_swap is tested against the interface, never against a vendor. That
+ * is the point of the connector: the provider is expected to change — 1inch
+ * is a sponsor bounty — and none of this has to change with it.
+ */
+function stubRouter(over: Partial<RouteQuote> = {}, fail?: RouteError): RouteConnector {
+  return {
+    name: 'stub',
+    serves: () => true,
+    async route(request) {
+      if (fail) throw fail
+      const approve = encodeFunctionData({ abi: KNOWN_ABI, functionName: 'approve', args: [ROUTER, 500_000_000n] })
+      return {
+        provider: 'stub',
+        calls: [
+          { to: `${BASE}:${USDC}`, value: '0', data: approve.toLowerCase(), chainId: BASE },
+          { to: `${BASE}:${ROUTER}`, value: '0', data: '0xdeadbeef', chainId: BASE },
+        ],
+        expectedOut: '120000000000000000',
+        minOut: '119400000000000000',
+        approval: { spender: `${BASE}:${ROUTER}`, asset: request.fromAsset, amount: '500000000' },
+        feesUsd: '0.31',
+        expiresAt: '2026-09-10T12:03:00.000Z',
+        etaSeconds: 42,
+        steps: ['Swap on Aerodrome'],
+        raw: {},
+        ...over,
+      }
+    },
+  }
+}
+
+describe('prepare_trade', () => {
+  const holdings: Portfolio = {
+    ...PORTFOLIO,
+    chains: [{ chainId: BASE, name: 'Base', value: 2000, share: 1 }],
+    assets: [
+      {
+        assetId: `${BASE}/erc20:${USDC}`,
+        chainId: BASE,
+        asset: { symbol: 'USDC', name: 'USD Coin', decimals: 6, iconUrl: null, verified: true },
+        amount: '1000000000',
+        value: 1000,
+        price: 1,
+        change1d: 0,
+        share: 0.7,
+        holdings: [{ walletId: 'w1', amount: '1000000000', value: 1000 }],
+      },
+      {
+        assetId: `${BASE}/slip44:60`,
+        chainId: BASE,
+        asset: { symbol: 'ETH', name: 'Ether', decimals: 18, iconUrl: null, verified: true },
+        amount: '300000000000000000',
+        value: 500,
+        price: 4000,
+        change1d: 0,
+        share: 0.3,
+        holdings: [{ walletId: 'w1', amount: '300000000000000000', value: 500 }],
+      },
+    ],
+  }
+  const send = (client: Client, args: Record<string, unknown> = {}) =>
+    client.callTool({
+      name: 'prepare_trade',
+      arguments: { from: `${BASE}/erc20:${USDC}`, to: `${BASE}/slip44:60`, amountIn: '500000000', ...args },
+    })
+
+  it('routes, checks and returns a link with the floor on it, never the calls', async () => {
+    const sink = planSink()
+    const { client } = await connected(undefined, {
+      readPortfolio: async () => holdings,
+      router: stubRouter(),
+      createPlan: sink.createPlan,
+    }, { grantId: 'grant-1' })
+    const res = (await send(client)) as { isError?: boolean; content: { text: string }[]; structuredContent: Record<string, unknown> }
+
+    expect(res.isError, res.content[0]?.text).toBeFalsy()
+    expect(res.content[0]!.text).toMatch(/^Plan ready: Swap 500 USDC for about 0.12 ETH from Main on Base\./)
+    expect(res.content[0]!.text).toContain('Route: Swap on Aerodrome.')
+    expect(res.structuredContent).toMatchObject({
+      status: 'awaiting_review',
+      minOut: '119400000000000000',
+      expectedOut: '120000000000000000',
+      feesUsd: '0.31',
+    })
+    // Both calls are on the plan; neither reaches the agent.
+    const plan = sink.created[0]!.plan
+    expect(plan.outcome.type === 'calls' && plan.outcome.calls).toHaveLength(2)
+    expect(plan.quote).toMatchObject({ provider: 'stub', minOut: '119400000000000000' })
+    expect(plan.humanPlan.steps).toContain('At least 0.1194 ETH, or it reverts')
+    expect(JSON.stringify(res)).not.toContain('0xdeadbeef')
+    expect(JSON.stringify(res)).not.toContain('"calls"')
+  })
+
+  /** The quote's clock is the plan's clock: a floor nobody still offers is not a floor. */
+  it('expires with the quote when the quote goes first', async () => {
+    const sink = planSink()
+    const { client } = await connected(undefined, {
+      readPortfolio: async () => holdings,
+      router: stubRouter({ expiresAt: new Date(Date.now() + 30_000).toISOString() }),
+      createPlan: sink.createPlan,
+    }, { grantId: 'grant-1' })
+    await send(client)
+    const expiry = Date.parse(sink.created[0]!.plan.expiresAt) - Date.now()
+    expect(expiry).toBeLessThan(60_000)
+  })
+
+  it('says so plainly when no routing provider is configured', async () => {
+    const { client } = await connected(undefined, { readPortfolio: async () => holdings, router: null })
+    const res = (await send(client)) as { isError?: boolean; content: { text: string }[] }
+    expect(res.isError).toBe(true)
+    expect(res.content[0]!.text).toContain('no routing provider is configured')
+  })
+
+  it('passes a provider’s own refusal through as a sentence', async () => {
+    const { client } = await connected(undefined, {
+      readPortfolio: async () => holdings,
+      router: stubRouter({}, new RouteError('no_route', 'no route for USDC to ETH at this size right now')),
+    })
+    const res = (await send(client)) as { isError?: boolean; content: { text: string }[] }
+    expect(res.isError).toBe(true)
+    expect(res.content[0]!.text).toContain('no route for USDC to ETH at this size right now')
+  })
+
+  /** The route provider is untrusted. These are the two shapes that matter. */
+  it('blocks a route whose approval lets someone other than the router spend', async () => {
+    const sink = planSink()
+    const rogue = encodeFunctionData({ abi: KNOWN_ABI, functionName: 'approve', args: [WALLETS[1]!.address, 500_000_000n] })
+    const { client } = await connected(undefined, {
+      readPortfolio: async () => holdings,
+      router: stubRouter({
+        calls: [
+          { to: `${BASE}:${USDC}`, value: '0', data: rogue.toLowerCase(), chainId: BASE },
+          { to: `${BASE}:${ROUTER}`, value: '0', data: '0xdeadbeef', chainId: BASE },
+        ],
+        approval: { spender: `${BASE}:${WALLETS[1]!.address}`, asset: `${BASE}/erc20:${USDC}`, amount: '500000000' },
+      }),
+      createPlan: sink.createPlan,
+    }, { grantId: 'grant-1' })
+    const res = (await send(client)) as { isError?: boolean; content: { text: string }[] }
+    expect(res.isError).toBe(true)
+    expect(res.content[0]!.text).toContain('but the call goes to')
+    expect(sink.created[0]!.plan.status).toBe('blocked')
+  })
+
+  it('blocks a route that asks for more than it spends', async () => {
+    const sink = planSink()
+    const greedy = encodeFunctionData({ abi: KNOWN_ABI, functionName: 'approve', args: [ROUTER, maxUint256] })
+    const { client } = await connected(undefined, {
+      readPortfolio: async () => holdings,
+      router: stubRouter({
+        calls: [
+          { to: `${BASE}:${USDC}`, value: '0', data: greedy.toLowerCase(), chainId: BASE },
+          { to: `${BASE}:${ROUTER}`, value: '0', data: '0xdeadbeef', chainId: BASE },
+        ],
+      }),
+      createPlan: sink.createPlan,
+    }, { grantId: 'grant-1' })
+    const res = (await send(client)) as { isError?: boolean; content: { text: string }[] }
+    expect(res.isError).toBe(true)
+    expect(res.content[0]!.text).toContain('approves exactly what it spends')
+    expect(sink.created[0]!.plan.status).toBe('blocked')
+  })
+
+  /**
+   * The point of one tool: the agent gives two assets and never has to know
+   * which of our words applies. A cross-chain pair used to be refused by
+   * naming a tool that did not exist.
+   */
+  it('takes a cross-chain pair as a bridge, and says which it built', async () => {
+    const sink = planSink()
+    const { client } = await connected(undefined, {
+      readPortfolio: async () => holdings,
+      router: stubRouter(),
+      createPlan: sink.createPlan,
+    }, { grantId: 'grant-1' })
+    const res = (await send(client, { to: 'eip155:1/slip44:60' })) as {
+      isError?: boolean
+      content: { text: string }[]
+      structuredContent: Record<string, unknown>
+    }
+    expect(res.isError, res.content[0]?.text).toBeFalsy()
+    expect(res.structuredContent).toMatchObject({ trade: 'bridge' })
+    expect(res.content[0]!.text).toContain('Bridge 500 USDC on Base for about 0.12 ETH on Ethereum from Main')
+    expect(res.content[0]!.text).toContain('the source transaction confirms first and the funds arrive after that')
+    expect(sink.created[0]!.plan.humanPlan.steps).toContain(
+      "stub estimates about 42 seconds to arrive. That is the bridge's estimate, not Ottopus's.",
+    )
+    expect(sink.created[0]!.plan.intent.kind).toBe('bridge')
+  })
+
+  it('calls a same-chain pair a swap', async () => {
+    const sink = planSink()
+    const { client } = await connected(undefined, {
+      readPortfolio: async () => holdings,
+      router: stubRouter(),
+      createPlan: sink.createPlan,
+    }, { grantId: 'grant-1' })
+    const res = (await send(client)) as { structuredContent: Record<string, unknown> }
+    expect(res.structuredContent).toMatchObject({ trade: 'swap' })
+    expect(sink.created[0]!.plan.intent.kind).toBe('swap')
+  })
+
+  it('refuses without plans:write', async () => {
+    const { client } = await connected(['wallets:read'], { readPortfolio: async () => holdings, router: stubRouter() })
+    const res = (await send(client)) as { isError?: boolean; content: { text: string }[] }
+    expect(res.isError).toBe(true)
+    expect(res.content[0]!.text).toContain('plans:write')
+  })
+})
+
+describe('find_asset', () => {
+  const registry = {
+    name: 'fake',
+    async byAssetId() {
+      return null
+    },
+    async find(chain: string, query: string) {
+      if (query.toUpperCase() !== 'DEGEN') return null
+      return {
+        assetId: `${chain}/erc20:0x4ed4e862860bed51a9570b96d89af5e1b0efefed`,
+        symbol: 'DEGEN',
+        name: 'Degen',
+        decimals: 18,
+        iconUrl: 'https://cdn/degen.webp',
+        priceUsd: 0.00104,
+        verified: true,
+      }
+    },
+  }
+
+  /**
+   * The gap this closes: every prepare_* tool demands a CAIP-19 id and tells
+   * the agent never to guess a contract from a symbol, while get_portfolio
+   * only lists holdings. For a swap's receiving side that left nowhere to go.
+   */
+  it('turns a symbol into the asset id a prepare tool will take', async () => {
+    const { client } = await connected(undefined, { tokens: registry })
+    const res = (await call(client, 'find_asset', { chain: BASE, query: 'degen' })) as Result
+    expect(res.isError).toBeFalsy()
+    expect(res.content[0]!.text).toContain('Degen (DEGEN) on Base')
+    expect(res.content[0]!.text).toContain(`assetId ${BASE}/erc20:0x4ed4e862860bed51a9570b96d89af5e1b0efefed`)
+    // Decimals are the thing agents get wrong, so the base-unit example is spelled out.
+    expect(res.content[0]!.text).toContain('an amount of 1 DEGEN is "1000000000000000000" in base units')
+    expect(res.structuredContent).toMatchObject({ symbol: 'DEGEN', decimals: 18, verified: true })
+  })
+
+  /** A listing claim is not a safety check, and the wording must not imply it is. */
+  it('says what "verified" does and does not mean', async () => {
+    const { client } = await connected(undefined, { tokens: registry })
+    const ok = (await call(client, 'find_asset', { chain: BASE, query: 'DEGEN' })) as Result
+    expect(ok.content[0]!.text).toContain('a listing claim and not a safety check')
+
+    const unverified = { ...registry, async find(c: string, q: string) {
+      const found = await registry.find(c, q)
+      return found ? { ...found, verified: false } : null
+    } }
+    const { client: other } = await connected(undefined, { tokens: unverified })
+    const res = (await call(other, 'find_asset', { chain: BASE, query: 'DEGEN' })) as Result
+    expect(res.content[0]!.text).toContain('Show the address to the person before spending anything')
+  })
+
+  it('says plainly when nothing matches, and suggests the address', async () => {
+    const { client } = await connected(undefined, { tokens: registry })
+    const res = (await call(client, 'find_asset', { chain: BASE, query: 'ZZZNOTATOKEN' })) as Result
+    expect(res.isError).toBe(true)
+    expect(res.content[0]!.text).toContain('give the contract address instead of the symbol')
+  })
+
+  it('says so when the deployment has no registry', async () => {
+    const { client } = await connected(undefined, { tokens: null })
+    const res = (await call(client, 'find_asset', { chain: BASE, query: 'DEGEN' })) as Result
+    expect(res.isError).toBe(true)
+    expect(res.content[0]!.text).toContain('no token registry is configured')
+  })
+
+  /** Public token metadata says nothing about the person, so no grant is needed. */
+  it('needs no scope at all', async () => {
+    const { client } = await connected([], { tokens: registry })
+    const res = (await call(client, 'find_asset', { chain: BASE, query: 'DEGEN' })) as Result
+    expect(res.isError).toBeFalsy()
   })
 })

@@ -1,10 +1,12 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
 import type { SessionUser } from '../auth/session.js'
+import { chainName } from '../core/index.js'
 import { NEVER_GRANTED, SCOPE_COPY, hasScope, type Scope } from '../oauth/scopes.js'
 import { type StatusDeps, cancelPlan, cancelText, getPlan, getPlanText } from './plan-status.js'
 import { portfolioText, summarisePortfolio, walletsText } from './readable.js'
-import { type PrepareDeps, prepareText, prepareTransfer } from './transfer.js'
+import { type SwapDeps, prepareTrade, tradeText } from './trade.js'
+import { prepareText, prepareTransfer } from './transfer.js'
 
 /**
  * The tool surface.
@@ -37,12 +39,13 @@ export interface ToolContext {
  * real MCP client with nothing but fakes, and the route is the one place that
  * knows how a userId becomes a row.
  *
- * The reads a prepare_* tool needs are `PrepareDeps` and the reads get_plan
- * and cancel_plan need are `StatusDeps`, declared where those functions live
+ * The reads a prepare_* tool needs are `SwapDeps` (which extends the
+ * transfer's `PrepareDeps` with the router) and the reads get_plan and
+ * cancel_plan need are `StatusDeps`, declared where those functions live
  * rather than copied here — one list per capability, and no chance of this
  * one drifting from what the pipeline actually asks for.
  */
-export interface ToolDeps extends StatusDeps, PrepareDeps {
+export interface ToolDeps extends StatusDeps, SwapDeps {
   findUser(userId: string): Promise<SessionUser | null>
   findAgent(clientId: string): Promise<{ clientName: string } | null>
 }
@@ -267,6 +270,124 @@ export function buildServer(ctx: ToolContext, deps: ToolDeps): McpServer {
       const outcome = await prepareTransfer({ userId: ctx.userId, grantId: ctx.grantId }, deps, input)
       const body = prepareText(outcome)
       if (outcome.kind === 'invalid' || outcome.kind === 'no_wallet') return failure(body)
+      if (outcome.kind === 'blocked') {
+        return {
+          ...text(body, { planId: outcome.planId, status: 'blocked', summary: outcome.summary, reasons: outcome.reasons }),
+          isError: true,
+        }
+      }
+      const { kind: _kind, linkExpiresAt: _link, ...structured } = outcome
+      return text(body, structured)
+    },
+  )
+
+  /**
+   * Turning a token's name into something a prepare_* tool will accept.
+   *
+   * Every prepare_* tool insists on a CAIP-19 asset id and tells the agent
+   * never to guess a contract from a symbol — which left it nowhere to go
+   * for any token the person does not already hold, since get_portfolio only
+   * lists holdings. The receiving side of a swap is exactly that case. So
+   * agents went looking elsewhere, which is the one thing a tool surface
+   * should make unnecessary.
+   *
+   * No scope: this reads a public token list and nothing about the person.
+   */
+  server.registerTool(
+    'find_asset',
+    {
+      title: 'Find an asset',
+      description:
+        'Turn a token symbol or contract address into the CAIP-19 asset id that prepare_transfer and ' +
+        'prepare_trade need, with its decimals, name and price. Use it for any token the person does ' +
+        'not already hold — get_portfolio covers the ones they do. Read-only, and it reveals nothing ' +
+        'about the person. A symbol can be ambiguous, so the address it resolved to comes back too: ' +
+        'show it before spending anything.',
+      inputSchema: {
+        chain: z.string().describe('CAIP-2 chain id, e.g. eip155:8453 for Base.'),
+        query: z
+          .string()
+          .describe('A symbol like USDC or DEGEN, or a 0x contract address. The chain’s own currency by symbol works too.'),
+      },
+      annotations: { readOnlyHint: true, openWorldHint: true },
+    },
+    async ({ chain, query }) => {
+      if (!deps.tokens) {
+        return failure('Token lookup is not available on this deployment — no token registry is configured.')
+      }
+      const found = await deps.tokens.find(chain, query)
+      if (!found) {
+        return failure(
+          `No token matching "${query}" was found on ${chain}. Check the chain, or give the contract address instead of the symbol.`,
+        )
+      }
+      const address = found.assetId.split(':').pop() ?? ''
+      const lines = [
+        `${found.name} (${found.symbol}) on ${chainName(chain)}`,
+        `assetId ${found.assetId}`,
+        `${found.decimals} decimals — an amount of 1 ${found.symbol} is "1${'0'.repeat(found.decimals)}" in base units`,
+        ...(found.priceUsd === null ? [] : [`about $${found.priceUsd} each`]),
+        found.verified
+          ? 'Listed as verified by the token registry, which is a listing claim and not a safety check.'
+          : 'Not marked verified by the token registry. Show the address to the person before spending anything.',
+      ]
+      return text(lines.join('\n'), { ...found, address })
+    },
+  )
+
+  /**
+   * The second tool that builds a plan, and the first that asks somebody else
+   * for the calls. The route provider is untrusted: what it returns is
+   * decoded and checked like anything else, and a plan whose approval does
+   * not match its router call never gets a link.
+   */
+  server.registerTool(
+    'prepare_trade',
+    {
+      title: 'Prepare a swap or a bridge',
+      description:
+        'Build a plan to turn one asset into another. Same chain is a swap, different chains a bridge — ' +
+        'give the two assets and Ottopus works out which. Picks the wallet with a stated reason unless ' +
+        'one is given, asks the routing provider for a route, checks the calls it returns, and returns a ' +
+        'review link with the minimum received and the fees on it. Approvals are exact, never unlimited. ' +
+        'The person opens the link and signs in their own wallet; nothing moves until they do. Amounts ' +
+        'are in base units.',
+      inputSchema: {
+        from: z
+          .string()
+          .describe('CAIP-19 asset to spend, exactly as get_portfolio lists it under assetId. Never guess a token contract from its symbol.'),
+        to: z
+          .string()
+          .describe('CAIP-19 asset to receive. On the same chain as `from` for a swap, on another for a bridge.'),
+        amountIn: z
+          .string()
+          .regex(/^[0-9]+$/)
+          .optional()
+          .describe('Base units to spend. Give this or amountOut, not both.'),
+        amountOut: z
+          .string()
+          .regex(/^[0-9]+$/)
+          .optional()
+          .describe('Base units to receive, when the person asked for an exact output. Give this or amountIn, not both.'),
+        slippageBps: z
+          .number()
+          .int()
+          .min(1)
+          .max(5000)
+          .optional()
+          .describe('Tolerance in basis points; 50 is 0.5%. The provider’s default when omitted.'),
+        fromAccount: z.string().optional().describe('CAIP-10 of a linked wallet to spend from. Omit to let Ottopus recommend one.'),
+        note: z.string().max(200).optional().describe('Why, in the person’s words. Shown on the review page.'),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+    },
+    async (input) => {
+      if (!hasScope(ctx.scopes, 'plans:write')) return denied('plans:write')
+      const outcome = await prepareTrade({ userId: ctx.userId, grantId: ctx.grantId }, deps, input)
+      const body = tradeText(outcome)
+      if (outcome.kind === 'invalid' || outcome.kind === 'no_wallet' || outcome.kind === 'no_route') {
+        return failure(body)
+      }
       if (outcome.kind === 'blocked') {
         return {
           ...text(body, { planId: outcome.planId, status: 'blocked', summary: outcome.summary, reasons: outcome.reasons }),

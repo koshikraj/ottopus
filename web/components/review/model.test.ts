@@ -13,6 +13,7 @@ import {
   executability,
   recipientOf,
   simulationNote,
+  standingApproval,
   verificationSummary,
 } from './model'
 
@@ -301,5 +302,113 @@ describe('the mark on the card', () => {
 
   it('falls back to the stored run when the browser has none', () => {
     expect(executability({ ...plan, simulation: sim(false) }, null)).toEqual({ ok: false, label: 'May fail' })
+  })
+})
+
+describe('what a half-signed swap would leave behind', () => {
+  const ROUTER = '0x1231deb6f5749ef6ce6943a275a1d3e7486f4eae'
+  const swap = (approval: { spender: string; amount: string }): Plan => ({
+    ...plan,
+    intent: { kind: 'swap', from: `${BASE}/erc20:${USDC}`, to: `${BASE}/slip44:60`, amountIn: '500000000' },
+    humanPlan: { ...plan.humanPlan, assets: [{ id: `${BASE}/erc20:${USDC}`, symbol: 'USDC', decimals: 6 }] },
+    decodedActions: [
+      {
+        target: `${BASE}:${USDC}`,
+        isContract: true,
+        source: 'abi',
+        verified: true,
+        function: 'approve(address,uint256)',
+        args: [],
+        value: '0',
+        approval,
+      },
+    ],
+  })
+
+  /**
+   * The number is the whole point. "An allowance could remain" is not
+   * something anybody can weigh; "500 USDC to 0x1231…4eae" is.
+   */
+  it('names the amount in the asset’s own words and the spender', () => {
+    expect(standingApproval(swap({ spender: `${BASE}:${ROUTER}`, amount: '500000000' }))).toEqual({
+      spender: `${BASE}:${ROUTER}`,
+      amount: '500',
+      symbol: 'USDC',
+      unlimited: false,
+    })
+  })
+
+  it('says unlimited plainly, since that is a different question', () => {
+    expect(standingApproval(swap({ spender: `${BASE}:${ROUTER}`, amount: 'unlimited' }))).toMatchObject({
+      amount: 'unlimited',
+      unlimited: true,
+    })
+  })
+
+  it('has nothing to say about a plan that approves nothing', () => {
+    expect(standingApproval(plan)).toBeNull()
+  })
+})
+
+describe('a trade with nothing simulated yet', () => {
+  const DEGEN = '0x4ed4e862860bed51a9570b96d89af5e1b0efefed'
+  const trade = (kind: 'swap' | 'bridge', to: string): Plan => ({
+    ...plan,
+    intent: { kind, from: `${BASE}/erc20:${USDC}`, to, amountIn: '500000000' },
+    quote: { provider: 'lifi', expiresAt: plan.quote.expiresAt, expectedOut: '9500000000000000000', minOut: '9400000000000000000' },
+    humanPlan: {
+      ...plan.humanPlan,
+      assets: [
+        { id: `${BASE}/erc20:${USDC}`, symbol: 'USDC', decimals: 6 },
+        { id: to, symbol: 'DEGEN', decimals: 18 },
+      ],
+    },
+  })
+
+  /**
+   * Without this a swap showed no asset rows at all until a simulation
+   * landed, so the amounts and the icons hanging off them were absent from
+   * the page whose whole job is to say what moves.
+   */
+  it('reads both sides off the request and the quote', () => {
+    const rows = assetChanges(trade('swap', `${BASE}/erc20:${DEGEN}`))
+    expect(rows).toEqual([
+      { assetId: `${BASE}/erc20:${USDC}`, direction: 'out', amount: '500', symbol: 'USDC', where: 'leaves Main' },
+      { assetId: `${BASE}/erc20:${DEGEN}`, direction: 'in', amount: '9.5', symbol: 'DEGEN', where: 'arrives in Main' },
+    ])
+  })
+
+  it('names the destination chain when the trade crosses one', () => {
+    const rows = assetChanges(trade('bridge', `eip155:42161/erc20:${DEGEN}`))
+    expect(rows[1]).toMatchObject({ direction: 'in', where: 'arrives on Arbitrum One' })
+  })
+
+  it('is labelled as the request, because that is what it is', () => {
+    expect(changeSource(trade('swap', `${BASE}/erc20:${DEGEN}`))).toBe('request')
+  })
+
+  /** A traced run still wins: it is an observation, this is an expectation. */
+  it('gives way to a simulation the moment one lands', () => {
+    const page = trade('swap', `${BASE}/erc20:${DEGEN}`)
+    const live = {
+      provider: 'eth_simulateV1 · public RPC',
+      chainId: BASE,
+      blockNumber: '51200000',
+      success: true,
+      assetChanges: [
+        { assetId: `${BASE}/erc20:${USDC}`, symbol: 'USDC', decimals: 6, diff: '-500000000', pre: '500000000', post: '0' },
+      ],
+      gasUsed: '120000',
+      gasUsd: 'unknown',
+      resultHash: '',
+      ranAt: '2026-09-11T12:00:00.000Z',
+    }
+    expect(assetChanges(page, live)).toHaveLength(1)
+    expect(changeSource(page, live)).toBe('live')
+  })
+
+  it('shows nothing rather than a half row when the plan never named the assets', () => {
+    const bare = { ...trade('swap', `${BASE}/erc20:${DEGEN}`), humanPlan: { ...plan.humanPlan, assets: undefined } }
+    expect(assetChanges(bare)).toEqual([])
   })
 })

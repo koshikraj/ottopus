@@ -2,6 +2,8 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { findUserById } from '../auth/session.js'
 import { config } from '../config.js'
 import { readPortfolio } from '../connectors/portfolio/index.js'
+import { lifiConnector } from '../connectors/route/index.js'
+import { zerionTokens } from '../connectors/tokens/index.js'
 import { getDb } from '../db/client.js'
 import { SCOPES } from '../oauth/scopes.js'
 import { createPlan, findPlan, issueReviewLink, recordSimulation, transition } from '../plans/index.js'
@@ -60,6 +62,19 @@ async function main(): Promise<void> {
      * turns it back on, and the pipeline is still tested that way.
      */
     simulator: null,
+    // Same provider as the portfolio, so a token has one logo and one price
+    // whether or not the person holds it. No key means no registry, and the
+    // words fall back rather than the plan failing.
+    tokens: config.zerionApiKey
+      ? zerionTokens({
+          apiKey: config.zerionApiKey,
+          ...(config.zerionApiUrl ? { baseUrl: config.zerionApiUrl } : {}),
+        })
+      : null,
+    router: lifiConnector({
+      apiKey: config.lifiApiKey,
+      ...(config.lifiApiUrl ? { baseUrl: config.lifiApiUrl } : {}),
+    }),
     createPlan: (input) => createPlan(db, input),
     issueReviewLink: (planId, version, planExpiresAt) =>
       issueReviewLink(db, { planId, version, planExpiresAt }, config.webUrl),
