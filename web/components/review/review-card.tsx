@@ -229,8 +229,8 @@ export function ReviewCard({
         </p>
       </footer>
 
-      {/* Narrow screens only: what sits beside the card on a wide one. */}
-      {advanced ? <div className="lg:hidden">{advanced}</div> : null}
+      {/* Below the width that fits a panel beside the card, it goes under it. */}
+      {advanced ? <div className="min-[1032px]:hidden">{advanced}</div> : null}
     </article>
   )
 }

@@ -1,12 +1,10 @@
 'use client'
 
 import { Badge } from '@/components/ui'
-import type { Plan, Visuals } from '@/lib/api'
+import type { Plan } from '@/lib/api'
 import { chainName, explorerAddressUrl } from '@/lib/chains'
 import { cn } from '@/lib/cn'
 import {
-  SOURCE_LABEL,
-  changeSource,
   chainOfPlan,
   decodedRows,
   preparedBy,
@@ -35,7 +33,6 @@ import type { LiveSimulation } from './use-simulation'
 
 export interface AdvancedPanelProps {
   plan: Plan
-  visuals: Visuals
   live?: LiveSimulation | undefined
   /** A neutral third-party decode of the calldata. Keyless. */
   decoderUrl?: string | null
@@ -48,12 +45,11 @@ export interface AdvancedPanelProps {
   className?: string
 }
 
-export function AdvancedPanel({ plan, visuals, live, decoderUrl, bare = false, className }: AdvancedPanelProps) {
+export function AdvancedPanel({ plan, live, decoderUrl, bare = false, className }: AdvancedPanelProps) {
   const chain = chainOfPlan(plan)
   const decoded = decodedRows(plan)
   const verification = verificationSummary(plan)
   const run = live?.run ?? null
-  const source = changeSource(plan, run)
   const note = simulationNote(plan, run)
   const recipient = recipientOf(plan)
   const running = live?.kind === 'running'
@@ -61,11 +57,13 @@ export function AdvancedPanel({ plan, visuals, live, decoderUrl, bare = false, c
   return (
     <section
       className={cn(
-        'flex flex-col gap-4',
+        'flex flex-col gap-3.5',
         bare ? 'pb-4' : 'rounded-[16px] border border-[var(--ot-border)] bg-[var(--ot-card)] px-[18px] py-4',
         className,
       )}
     >
+      {bare ? null : <h2 className="m-0 text-[13.5px] font-semibold">Advanced review</h2>}
+
       <Group
         title="Simulation"
         note={
@@ -87,7 +85,8 @@ export function AdvancedPanel({ plan, visuals, live, decoderUrl, bare = false, c
       >
         <Rows
           rows={[
-            ['Rows above', SOURCE_LABEL[source]],
+            // Which run the rows above came from is on the card already; a
+            // 280px panel has no room to say anything twice.
             ...(run ? ([['Block', run.blockNumber]] as [string, string][]) : []),
             ...(run?.gasUsed && run.gasUsed !== '0'
               ? ([['Gas', `${Number(run.gasUsed).toLocaleString()} units`]] as [string, string][])
@@ -116,59 +115,76 @@ export function AdvancedPanel({ plan, visuals, live, decoderUrl, bare = false, c
             </div>
           ))}
         </div>
-        {decoderUrl ? (
-          <a
-            href={decoderUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="w-fit text-[12px] font-medium text-[var(--ot-plan-text)] underline decoration-[var(--ot-plan)]/40 underline-offset-2"
-          >
-            Check this calldata in an independent decoder
-          </a>
-        ) : null}
+        <div className="flex flex-col gap-1">
+          {decoderUrl ? (
+            <a
+              href={decoderUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="w-fit text-[11.5px] font-medium text-[var(--ot-plan-text)] underline decoration-[var(--ot-plan)]/40 underline-offset-2"
+            >
+              Decode this elsewhere
+            </a>
+          ) : null}
+          {recipient && explorerAddressUrl(chain, recipient.address) ? (
+            <a
+              href={explorerAddressUrl(chain, recipient.address)!}
+              target="_blank"
+              rel="noreferrer"
+              className="w-fit text-[11.5px] font-medium text-[var(--ot-plan-text)] underline decoration-[var(--ot-plan)]/40 underline-offset-2"
+            >
+              Recipient on the {chainName(chain)} explorer
+            </a>
+          ) : null}
+        </div>
       </Group>
 
-      <Group title="The plan">
-        <Rows
-          rows={[
-            ...(recipient
-              ? ([['Recipient', recipient.name ? `${recipient.name} · ${short(recipient.address)}` : short(recipient.address)]] as [string, string][])
-              : []),
-            ['Network', chainName(chain)],
-            ['Prepared by', preparedBy(plan)],
-            ['Provenance', plan.provenance === 'agent_crafted' ? 'Agent-crafted' : 'Built by Ottopus'],
-            ['Plan hash', `${plan.planHash.slice(0, 18)}…`],
-            ...decoded.flatMap((row) => (row.contractName ? ([['Contract', row.contractName]] as [string, string][]) : [])),
-          ]}
-        />
-        {recipient && explorerAddressUrl(chain, recipient.address) ? (
-          <a
-            href={explorerAddressUrl(chain, recipient.address)!}
-            target="_blank"
-            rel="noreferrer"
-            className="w-fit text-[12px] font-medium text-[var(--ot-plan-text)]"
-          >
-            View the recipient on the {chainName(chain)} explorer
-          </a>
-        ) : null}
-      </Group>
-
-      <Group title="Raw calls" note="What the wallet will be handed, byte for byte.">
+      <Fold title="Raw calls" note="Byte for byte, as the wallet gets them">
         {decoded.map((row, i) => (
           <pre
             key={i}
-            className="m-0 overflow-x-auto rounded-[8px] bg-[var(--ot-water-3)] px-[11px] py-2.5 font-mono text-[10.5px] leading-[1.6] break-all whitespace-pre-wrap text-[var(--ot-text-2)]"
+            className="m-0 overflow-x-auto rounded-[8px] bg-[var(--ot-water-3)] px-2.5 py-2 font-mono text-[10px] leading-[1.6] break-all whitespace-pre-wrap text-[var(--ot-text-2)]"
           >
             {`to    ${row.raw.to}\nvalue ${row.raw.value}\ndata  ${row.raw.data}`}
           </pre>
         ))}
-      </Group>
+      </Fold>
 
-      <p className="m-0 text-[11px] leading-[1.5] text-[var(--ot-text-3)]">
-        Visuals beside the plan — icons and names — are looked up separately and are not covered by the plan hash.
-        {Object.keys(visuals.assets).length === 0 ? ' None were available for this plan.' : ''}
-      </p>
+      <Fold title="Identifiers" note="What makes this plan checkable">
+        <Rows
+          rows={[
+            ['Prepared by', preparedBy(plan)],
+            ['Provenance', plan.provenance === 'agent_crafted' ? 'Agent-crafted' : 'Built by Ottopus'],
+            ['Hash', `${plan.planHash.slice(0, 14)}…`],
+          ]}
+        />
+      </Fold>
     </section>
+  )
+}
+
+/**
+ * A section that stays shut until asked for.
+ *
+ * The panel is a reference, not a report: somebody opens it with a question,
+ * and everything that is not the answer to that question is in the way. Raw
+ * calldata and identifiers are each one line at rest and as long as they need
+ * to be when opened.
+ */
+function Fold({ title, note, children }: { title: string; note?: string; children: React.ReactNode }) {
+  return (
+    <details className="ot-review-details">
+      <summary className="flex cursor-pointer list-none items-baseline justify-between gap-2 [&::-webkit-details-marker]:hidden">
+        <span className="flex items-baseline gap-2">
+          <span className="text-[13px] font-semibold">{title}</span>
+          {note ? <span className="text-[11px] text-[var(--ot-text-3)]">{note}</span> : null}
+        </span>
+        <span className="ot-review-caret text-[11px] text-[var(--ot-text-3)]" aria-hidden>
+          ▾
+        </span>
+      </summary>
+      <div className="flex flex-col gap-2 pt-2">{children}</div>
+    </details>
   )
 }
 
@@ -208,5 +224,3 @@ function Rows({ rows }: { rows: readonly [string, string][] }) {
     </dl>
   )
 }
-
-const short = (address: string) => `${address.slice(0, 6)}…${address.slice(-4)}`

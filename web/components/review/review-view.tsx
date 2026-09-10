@@ -92,23 +92,25 @@ function Review({ token }: { token: string }) {
 
   const clock = canSign(status) ? (countdown(plan.expiresAt, now) || 'now') : <StatusChip status={status} />
   const live = { kind: simulation.state.kind, run: simulation.run, again: () => void simulation.again() }
-  const panelProps = {
-    plan,
-    visuals: visuals ?? { assets: {}, chains: {}, wallets: {} },
-    live,
-    decoderUrl: decoderUrl(plan),
-  }
+  const panelProps = { plan, live, decoderUrl: decoderUrl(plan) }
 
   /**
-   * Two columns from `lg`, one below it. The card keeps its 440 whatever the
-   * viewport does — it is a phone card by design and does not improve by
-   * stretching — and the space a wide screen has spare goes to the panel
-   * beside it rather than to a longer page.
+   * The card stays centred in the viewport and the panel hangs off its right
+   * edge, rather than the pair being centred together.
+   *
+   * The card is the page. Centring the two as a block would slide the thing
+   * everybody reads off to the left to make room for the thing most people
+   * never open, and the page would appear to move sideways the moment the
+   * panel had something to say. Absolute placement keeps the card exactly
+   * where it is at every width.
+   *
+   * The breakpoint is the arithmetic, not a guess: 440 for the card plus 16
+   * of gap plus 280 of panel, doubled around the centre, is 1032.
    */
   return (
     <Ground wide>
-      <div className="flex w-full flex-col items-start gap-4 lg:flex-row lg:justify-center">
-        <div className="w-full min-w-0 lg:max-w-[440px] lg:flex-none">
+      <div className="relative mx-auto w-full max-w-[440px]">
+        <div className="w-full min-w-0">
           <ReviewCard
             plan={plan}
             reference={reference}
@@ -118,7 +120,7 @@ function Review({ token }: { token: string }) {
             advanced={
               <details className="ot-review-details border-t border-[var(--ot-border)]">
                 <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-[18px] py-3 text-[13px] font-semibold [&::-webkit-details-marker]:hidden">
-                  Decoded calls and simulation
+                  Advanced review
                   <span className="ot-review-caret text-[var(--ot-text-3)]" aria-hidden>
                     ▾
                   </span>
@@ -138,7 +140,7 @@ function Review({ token }: { token: string }) {
             )}
           </ReviewCard>
         </div>
-        <aside className="hidden w-[360px] flex-none lg:block">
+        <aside className="absolute top-0 left-full ml-4 hidden w-[280px] min-[1032px]:block">
           <AdvancedPanel {...panelProps} />
         </aside>
       </div>
