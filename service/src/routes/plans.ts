@@ -129,6 +129,7 @@ export function planRoutes(db: PlanDb, session: MiddlewareHandler, deps: PlanRou
       plan: record.plan,
       walletId: record.walletId,
       statusAt: record.statusAt,
+      statusDetail: record.statusDetail,
       link: { expiresAt: record.linkExpiresAt },
       visuals: await visuals(c.get('userId'), record.plan),
     })
@@ -176,7 +177,7 @@ export function planRoutes(db: PlanDb, session: MiddlewareHandler, deps: PlanRou
 
     const link = await issueReviewLink(
       db,
-      { planId: record.plan.id, version: record.plan.version, planExpiresAt: record.plan.expiresAt },
+      { planId: record.plan.id, version: record.plan.version, planExpiresAt: record.plan.expiresAt, status: record.plan.status },
       webUrl,
     )
     return c.json(link, 201)

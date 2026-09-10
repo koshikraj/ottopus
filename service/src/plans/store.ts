@@ -43,6 +43,8 @@ export interface PlanRecord {
   createdAt: string
   /** When the latest event was written. */
   statusAt: string
+  /** What the latest event carried — the tx hash once submitted, a reason once failed. */
+  statusDetail: Record<string, unknown> | null
 }
 
 /** What a list row needs. No calls, no evidence — the review page has those. */
@@ -111,7 +113,7 @@ export const TX_HASH = /^0x[0-9a-f]{64}$/i
 const INITIAL_STATUSES: readonly PlanStatus[] = ['draft', 'awaiting_review', 'blocked']
 
 type PlanRow = typeof plans.$inferSelect
-type EventRow = Pick<typeof planEvents.$inferSelect, 'status' | 'createdAt'>
+type EventRow = Pick<typeof planEvents.$inferSelect, 'status' | 'createdAt' | 'detail'>
 
 /**
  * Status is not stored in the payload — it lives in events — and the hash does
@@ -136,12 +138,13 @@ function toRecord(row: PlanRow, event: EventRow, now = new Date()): PlanRecord {
     grantId: row.grantId,
     createdAt: row.createdAt.toISOString(),
     statusAt: event.createdAt.toISOString(),
+    statusDetail: (event.detail as Record<string, unknown> | null) ?? null,
   }
 }
 
 async function latestEvent(db: PlanDb, planId: string, version: number): Promise<EventRow | null> {
   const [row] = await db
-    .select({ status: planEvents.status, createdAt: planEvents.createdAt })
+    .select({ status: planEvents.status, createdAt: planEvents.createdAt, detail: planEvents.detail })
     .from(planEvents)
     .where(and(eq(planEvents.planId, planId), eq(planEvents.planVersion, version)))
     .orderBy(desc(planEvents.seq))
@@ -186,7 +189,7 @@ export async function createPlan(
     const [event] = await tx
       .insert(planEvents)
       .values({ planId: plan.id, planVersion: plan.version, status: plan.status })
-      .returning({ status: planEvents.status, createdAt: planEvents.createdAt })
+      .returning({ status: planEvents.status, createdAt: planEvents.createdAt, detail: planEvents.detail })
     return toRecord(row!, event!)
   })
 }
@@ -288,6 +291,7 @@ export async function listPending(db: PlanDb, userId: string): Promise<PlanRecor
       planVersion: planEvents.planVersion,
       status: planEvents.status,
       createdAt: planEvents.createdAt,
+      detail: planEvents.detail,
     })
     .from(planEvents)
     .where(inArray(planEvents.planId, ids))
@@ -336,6 +340,7 @@ export async function listPlans(db: PlanDb, userId: string): Promise<PlanRecord[
       planVersion: planEvents.planVersion,
       status: planEvents.status,
       createdAt: planEvents.createdAt,
+      detail: planEvents.detail,
     })
     .from(planEvents)
     .where(inArray(planEvents.planId, chosen.map((r) => r.id)))
