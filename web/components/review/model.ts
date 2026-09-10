@@ -1,5 +1,4 @@
-import type { DecodedAction, Plan, PlanStatusName, PlanWarning } from '@/lib/api'
-import { chainName } from '@/lib/chains'
+import type { AssetDelta, DecodedAction, Plan, PlanStatusName, PlanWarning, Simulation } from '@/lib/api'
 import { addressOf, formatAmount, truncateAddress } from '@/lib/format'
 
 /**
@@ -56,26 +55,129 @@ export interface AssetChange {
   symbol: string
   /** "leaves Main", "arrives at koshik.eth" */
   where: string
+  /** The CAIP-19 id, so the row can find its icon. */
+  assetId: string
 }
 
 /**
- * What moves. For a transfer that is one outgoing row, read from the intent.
- * The simulation diff replaces this in M4; until then the page is honest that
- * it is the intent, not an observed result.
+ * What moves.
+ *
+ * The simulation's traced balances when there are any, because those were
+ * observed; the intent when there are not, because a plan on a chain nobody
+ * simulates still has to say what it will do. The two are not interchangeable
+ * and the page labels which one it is showing — `changeSource` is how it
+ * knows.
+ *
+ * The simulation traces the signing account's balances, so every row is about
+ * that wallet: what left it, and anything that arrived in it.
  */
-export function assetChanges(plan: Plan): AssetChange[] {
+export function assetChanges(plan: Plan, live?: Simulation | null): AssetChange[] {
+  const holder = holderOf(plan)
+  const traced = (live ?? plan.simulation)?.assetChanges ?? []
+  if (traced.length > 0) return traced.map((delta) => observedRow(delta, holder))
   if (plan.intent.kind !== 'transfer') return []
   const words = assetWords(plan, plan.intent.asset)
   if (!words) return []
-  const from = plan.resolution.account.label ?? truncateAddress(addressOf(plan.resolution.account.caip10))
   return [
     {
       direction: 'out',
       amount: formatAmount(plan.intent.amount, words.decimals),
       symbol: words.symbol,
-      where: `leaves ${from}`,
+      where: `leaves ${holder}`,
+      assetId: plan.intent.asset,
     },
   ]
+}
+
+function holderOf(plan: Plan): string {
+  return plan.resolution.account.label ?? truncateAddress(addressOf(plan.resolution.account.caip10))
+}
+
+/**
+ * Where the rows came from, which the page has to say out loud.
+ *
+ * "live" is a simulation the browser ran while the person was looking, which
+ * is the only one that describes the chain as it is now. "stored" is the run
+ * the service did when the plan was built — true when it ran, and older than
+ * the reader. "request" is the intent, which is a promise rather than an
+ * observation.
+ */
+export type ChangeSource = 'live' | 'stored' | 'request'
+
+export function changeSource(plan: Plan, live?: Simulation | null): ChangeSource {
+  if ((live?.assetChanges.length ?? 0) > 0) return 'live'
+  if ((plan.simulation?.assetChanges.length ?? 0) > 0) return 'stored'
+  return 'request'
+}
+
+export const SOURCE_LABEL: Readonly<Record<ChangeSource, string>> = {
+  live: 'simulated just now',
+  stored: 'simulated when the plan was built',
+  request: 'from the request',
+}
+
+function observedRow(delta: AssetDelta, holder: string): AssetChange {
+  const out = delta.diff.startsWith('-')
+  const magnitude = out ? delta.diff.slice(1) : delta.diff
+  return {
+    direction: out ? 'out' : 'in',
+    // A token the simulator could not name is shown in its own units rather
+    // than converted by a guessed number of decimals.
+    amount: delta.decimals === null ? magnitude : formatAmount(magnitude, delta.decimals),
+    symbol: delta.symbol ?? 'units',
+    where: out ? `leaves ${holder}` : `arrives in ${holder}`,
+    assetId: delta.assetId,
+  }
+}
+
+/**
+ * The line under the asset changes: who simulated, at which block, and that
+ * it is a prediction. Null when nothing ran, so the page can say that too
+ * rather than implying a pass.
+ */
+export function simulationNote(plan: Plan, live?: Simulation | null): string | null {
+  const sim = live ?? plan.simulation
+  if (!sim) return null
+  const where = `${sim.provider} at block ${sim.blockNumber}`
+  if (!sim.success) {
+    const which = sim.failedCall ? `call ${sim.failedCall}` : 'the batch'
+    return `${where} — ${which} reverted${sim.revertReason ? `: ${sim.revertReason}` : ''}`
+  }
+  return `Simulated by ${where}. A prediction, not a guarantee.`
+}
+
+/**
+ * Will it execute? One mark, for the card.
+ *
+ * The card used to carry the whole revert sentence, which is a paragraph of
+ * chain vocabulary in the middle of a decision a person makes in seconds.
+ * They need to know that something is wrong, not what; the reason is in the
+ * advanced panel, where somebody who wants it will look. Null when nothing
+ * has run, because "no simulation" is not a verdict either way.
+ */
+export interface Executability {
+  ok: boolean
+  label: string
+}
+
+export function executability(plan: Plan, live?: Simulation | null): Executability | null {
+  const sim = live ?? plan.simulation
+  if (!sim) return null
+  return sim.success ? { ok: true, label: 'Executable' } : { ok: false, label: 'May fail' }
+}
+
+/**
+ * The banner a fresh simulation earns when it disagrees with the plan.
+ *
+ * The plan was built against a block that has since passed. A browser run
+ * that now reverts is the most useful thing the page can tell somebody, and
+ * the reason signing is taken away: whatever the service concluded minutes
+ * ago, this will not execute.
+ */
+export function liveRefusal(live: Simulation | null): string | null {
+  if (!live || live.success) return null
+  const which = live.failedCall ? `Call ${live.failedCall}` : 'This batch'
+  return `${which} reverts against the chain as it is right now${live.revertReason ? `: ${live.revertReason}` : ''}.`
 }
 
 export interface Recipient {
@@ -93,29 +195,6 @@ export interface Fact {
   value: string
   detail?: string
   mono?: boolean
-}
-
-/** The rows under the asset changes. Five at most, and only what is known. */
-export function facts(plan: Plan): Fact[] {
-  const chain = chainOfPlan(plan)
-  const signer = plan.resolution.account
-  const rows: Fact[] = [
-    {
-      label: 'Signing with',
-      value: signer.label ?? truncateAddress(addressOf(signer.caip10)),
-      detail: signer.label ? truncateAddress(addressOf(signer.caip10)) : undefined,
-    },
-    { label: 'Network', value: chainName(chain), detail: 'no bridge' },
-  ]
-  if (plan.humanPlan.feesUsd && plan.humanPlan.feesUsd !== 'unknown') {
-    rows.push({ label: 'Network fee (est.)', value: `$${plan.humanPlan.feesUsd}`, mono: true })
-  } else {
-    rows.push({ label: 'Network fee', value: 'Your wallet will show it', detail: 'estimated at signing' })
-  }
-  if (plan.intent.kind === 'transfer' && plan.intent.note) {
-    rows.push({ label: 'Note', value: plan.intent.note })
-  }
-  return rows
 }
 
 /** The approvals a plan carries, for the callout. */
@@ -179,4 +258,26 @@ export function countdown(expiresAt: string, now = Date.now()): string {
 /** Who prepared it, for the details. */
 export function preparedBy(plan: Plan): string {
   return plan.createdVia === 'agent' ? 'An agent, over MCP' : 'You, in Ottopus'
+}
+
+/**
+ * The rows under the amount, cut to what a person deciding actually needs.
+ *
+ * The wallet and the network moved into one line beside the amount, and the
+ * expiry into the header, so what is left is the fee and anything the person
+ * was told about the request. Everything else — hashes, provenance, decoded
+ * arguments — belongs in the advanced panel, where somebody who wants it
+ * knows to look.
+ */
+export function keyFacts(plan: Plan): Fact[] {
+  const rows: Fact[] = []
+  if (plan.humanPlan.feesUsd && plan.humanPlan.feesUsd !== 'unknown') {
+    rows.push({ label: 'Network fee', value: `$${plan.humanPlan.feesUsd}`, detail: 'estimated', mono: true })
+  } else {
+    rows.push({ label: 'Network fee', value: 'Shown by your wallet' })
+  }
+  if (plan.intent.kind === 'transfer' && plan.intent.note) {
+    rows.push({ label: 'Note', value: plan.intent.note })
+  }
+  return rows
 }

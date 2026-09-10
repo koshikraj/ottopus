@@ -478,7 +478,35 @@ export interface Plan {
   expiresAt: string
   planHash: string
   decodedActions: DecodedAction[]
-  simulation: unknown | null
+  simulation: Simulation | null
+}
+
+/** One balance the simulation watched move. Signed base units; negative leaves. */
+export interface AssetDelta {
+  assetId: string
+  symbol: string | null
+  decimals: number | null
+  diff: string
+  pre: string
+  post: string
+}
+
+/**
+ * What the simulation observed. A prediction, never a guarantee — the page
+ * says so, because a green result is not a safety claim.
+ */
+export interface Simulation {
+  provider: string
+  chainId: string
+  blockNumber: string
+  success: boolean
+  assetChanges: AssetDelta[]
+  gasUsed: string
+  gasUsd: string
+  revertReason?: string
+  failedCall?: number
+  resultHash: string
+  ranAt: string
 }
 
 /**
@@ -488,8 +516,24 @@ export interface Plan {
  */
 export interface Visuals {
   assets: Record<string, { symbol: string; name: string; iconUrl: string | null }>
-  chains: Record<string, { name: string; iconUrl: string | null }>
+  chains: Record<string, ChainVisual>
   wallets: Record<string, { walletType: string; label: string | null }>
+}
+
+/**
+ * A chain's words, plus the CAIP-19 id of its own currency.
+ *
+ * The native asset id comes from the service because the SLIP-44 table lives
+ * in core. The page needs it to name the native row that its own simulation
+ * reports as a bare sentinel address, and a page that assumed coin type 60
+ * would label BNB as ETH.
+ */
+export interface ChainVisual {
+  name: string
+  iconUrl: string | null
+  nativeAssetId: string | null
+  nativeSymbol: string
+  nativeDecimals: number
 }
 
 export interface ReviewRead {

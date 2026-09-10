@@ -4,7 +4,7 @@ import { config } from '../config.js'
 import { readPortfolio } from '../connectors/portfolio/index.js'
 import { getDb } from '../db/client.js'
 import { SCOPES } from '../oauth/scopes.js'
-import { createPlan, findPlan, issueReviewLink, transition } from '../plans/index.js'
+import { createPlan, findPlan, issueReviewLink, recordSimulation, transition } from '../plans/index.js'
 import { portfolioProvider } from '../routes/portfolio-provider.js'
 import { httpLookups } from '../verify/index.js'
 import { listWallets } from '../wallets/index.js'
@@ -48,9 +48,22 @@ async function main(): Promise<void> {
     listWallets: (id) => listWallets(db, id),
     readPortfolio: provider ? (arms) => readPortfolio(provider, arms) : null,
     lookups: httpLookups({ rpcUrlTemplate: config.rpcUrlTemplate }),
+    /**
+     * Not wired: preparing a plan does not simulate.
+     *
+     * The review page runs its own simulation in the browser, against the
+     * block the person is reading at, and refuses to sign a plan that
+     * reverts there. A second run minutes earlier, on the service, bought a
+     * gate that the page already holds and cost every tool call a round trip
+     * to the chain. The adapter stays behind this line: passing
+     * `composite([baselineSimulator({ rpcUrlTemplate: config.rpcUrlTemplate })])`
+     * turns it back on, and the pipeline is still tested that way.
+     */
+    simulator: null,
     createPlan: (input) => createPlan(db, input),
     issueReviewLink: (planId, version, planExpiresAt) =>
       issueReviewLink(db, { planId, version, planExpiresAt }, config.webUrl),
+    recordSimulation: (input) => recordSimulation(db, input),
     findPlan: (userId, planId) => findPlan(db, userId, planId),
     transition: (input) => transition(db, input),
   }

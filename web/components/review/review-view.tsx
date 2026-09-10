@@ -7,11 +7,15 @@ import { Otto } from '@/components/brand'
 import { StillnessProvider } from '@/components/motion'
 import { Button, Callout, StatusChip } from '@/components/ui'
 import type { Plan, PlanStatusName } from '@/lib/api'
-import { canSign, countdown, effectiveStatus } from './model'
+import { cn } from '@/lib/cn'
+import { decoderUrl } from '@/lib/simulators'
+import { AdvancedPanel } from './advanced-panel'
+import { canSign, chainOfPlan, countdown, effectiveStatus } from './model'
 import { ReviewCard } from './review-card'
-import { ReviewSkeleton } from './review-skeleton'
+import { AdvancedSkeleton, ReviewSkeleton } from './review-skeleton'
 import { SignPanel } from './sign-panel'
 import { useReview } from './use-review'
+import { useSimulation } from './use-simulation'
 
 /**
  * P4. The link is usually opened on a phone from a chat, to decide one thing.
@@ -40,11 +44,27 @@ export function ReviewView({ token }: { token: string }) {
 function Review({ token }: { token: string }) {
   const { state, move } = useReview(token)
   const now = useClock(state.status === 'ready')
+  const read = state.status === 'ready' ? state.read : null
+  const plan = read?.plan ?? null
+  const chainId = plan ? chainOfPlan(plan) : null
+  // The chain's own currency, as the service names it. The page must not work
+  // this out: the SLIP-44 table lives in core, and a guess would label BNB as
+  // ETH on the row the browser's own simulation produces.
+  const native = chainId ? (read?.visuals?.chains[chainId] ?? null) : null
+  const simulation = useSimulation(plan, chainId, native)
 
   if (state.status === 'loading') {
+    // `wide` so the loader stands exactly where the card will: a skeleton that
+    // matches the card's shape but not its position still hands the reader a
+    // jump the moment the plan lands.
     return (
-      <Ground>
-        <ReviewSkeleton />
+      <Ground wide>
+        <div className="relative mx-auto w-full max-w-[440px]">
+          <ReviewSkeleton />
+          <aside className="absolute top-0 left-full ml-4 hidden w-[280px] min-[1032px]:block">
+            <AdvancedSkeleton />
+          </aside>
+        </div>
       </Ground>
     )
   }
@@ -65,7 +85,8 @@ function Review({ token }: { token: string }) {
     )
   }
 
-  const { plan, visuals, statusDetail } = state.read
+  const { visuals, statusDetail } = state.read
+  if (!plan) return null
   const status = effectiveStatus(plan, now)
   const reference = `request #${plan.id.slice(0, 6)}`
 
@@ -78,18 +99,59 @@ function Review({ token }: { token: string }) {
   }
 
   const clock = canSign(status) ? (countdown(plan.expiresAt, now) || 'now') : <StatusChip status={status} />
+  const live = { kind: simulation.state.kind, run: simulation.run, again: () => void simulation.again() }
+  const panelProps = { plan, live, decoderUrl: decoderUrl(plan) }
 
+  /**
+   * The card stays centred in the viewport and the panel hangs off its right
+   * edge, rather than the pair being centred together.
+   *
+   * The card is the page. Centring the two as a block would slide the thing
+   * everybody reads off to the left to make room for the thing most people
+   * never open, and the page would appear to move sideways the moment the
+   * panel had something to say. Absolute placement keeps the card exactly
+   * where it is at every width.
+   *
+   * The breakpoint is the arithmetic, not a guess: 440 for the card plus 16
+   * of gap plus 280 of panel, doubled around the centre, is 1032.
+   */
   return (
-    <Ground>
-      <ReviewCard plan={plan} reference={reference} clock={clock} visuals={visuals}>
-        {canSign(status) ? (
-          <SignPanel plan={plan} move={move} open />
-        ) : status === 'submitted' ? (
-          <SignPanel plan={plan} move={move} open={false} txHash={statusDetail?.txHash ?? null} />
-        ) : (
-          <Ended status={status} />
-        )}
-      </ReviewCard>
+    <Ground wide>
+      <div className="relative mx-auto w-full max-w-[440px]">
+        <div className="w-full min-w-0">
+          <ReviewCard
+            plan={plan}
+            reference={reference}
+            clock={clock}
+            visuals={visuals}
+            live={live}
+            advanced={
+              <details className="ot-review-details border-t border-[var(--ot-border)]">
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-[18px] py-3 text-[13px] font-semibold [&::-webkit-details-marker]:hidden">
+                  Advanced review
+                  <span className="ot-review-caret text-[var(--ot-text-3)]" aria-hidden>
+                    ▾
+                  </span>
+                </summary>
+                <div className="px-[18px]">
+                  <AdvancedPanel {...panelProps} bare />
+                </div>
+              </details>
+            }
+          >
+            {canSign(status) ? (
+              <SignPanel plan={plan} move={move} open resimulate={simulation.again} />
+            ) : status === 'submitted' ? (
+              <SignPanel plan={plan} move={move} open={false} txHash={statusDetail?.txHash ?? null} />
+            ) : (
+              <Ended status={status} />
+            )}
+          </ReviewCard>
+        </div>
+        <aside className="absolute top-0 left-full ml-4 hidden w-[280px] min-[1032px]:block">
+          <AdvancedPanel {...panelProps} />
+        </aside>
+      </div>
     </Ground>
   )
 }
@@ -105,11 +167,18 @@ function useClock(running: boolean): number {
   return now
 }
 
-function Ground({ children }: { children: ReactNode }) {
+function Ground({ children, wide = false }: { children: ReactNode; wide?: boolean }) {
   return (
     <StillnessProvider held>
-      <main className="ot-canvas relative flex min-h-dvh items-start justify-center overflow-x-hidden px-0 py-0 sm:items-center sm:px-5 sm:py-11">
-        <div className="relative w-full max-w-[440px]">{children}</div>
+      <main
+        className={cn(
+          'ot-canvas relative flex min-h-dvh justify-center overflow-x-hidden px-0 py-0 sm:px-5 sm:py-11',
+          // A plan sits at the top on a wide screen because the panel beside
+          // it is taller than the card; a dead link is short and centres.
+          wide ? 'items-start' : 'items-start sm:items-center',
+        )}
+      >
+        <div className={cn('relative w-full', wide ? 'max-w-[440px] lg:max-w-[824px]' : 'max-w-[440px]')}>{children}</div>
       </main>
     </StillnessProvider>
   )

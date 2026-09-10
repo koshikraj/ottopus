@@ -7,8 +7,12 @@ import {
   countdown,
   decodedRows,
   effectiveStatus,
-  facts,
+  changeSource,
+  keyFacts,
+  liveRefusal,
+  executability,
   recipientOf,
+  simulationNote,
   verificationSummary,
 } from './model'
 
@@ -79,7 +83,7 @@ describe('status on the page', () => {
 
 describe('what the page says', () => {
   it('shows the outgoing amount in the asset’s own words', () => {
-    expect(assetChanges(plan)).toEqual([{ direction: 'out', amount: '500', symbol: 'USDC', where: 'leaves Main' }])
+    expect(assetChanges(plan)).toEqual([{ assetId: `${BASE}/erc20:${USDC}`, direction: 'out', amount: '500', symbol: 'USDC', where: 'leaves Main' }])
   })
 
   it('shows nothing rather than guessing when the plan recorded no asset words', () => {
@@ -90,13 +94,21 @@ describe('what the page says', () => {
     expect(recipientOf(plan)).toEqual({ address: KOSHIK, name: 'koshik.eth' })
   })
 
-  it('lists the signer, the network, the fee it cannot estimate yet, and the note', () => {
-    expect(facts(plan).map((f) => [f.label, f.value])).toEqual([
-      ['Signing with', 'Main'],
-      ['Network', 'Base'],
-      ['Network fee', 'Your wallet will show it'],
+  /**
+   * Two rows, not four. The signer and the network moved onto one line beside
+   * the amount and the expiry into the header, because a person deciding
+   * whether to send 500 USDC is not reading a table.
+   */
+  it('keeps only the fee and the note as rows', () => {
+    expect(keyFacts(plan).map((f) => [f.label, f.value])).toEqual([
+      ['Network fee', 'Shown by your wallet'],
       ['Note', 'rent'],
     ])
+  })
+
+  it('drops the note row when the request carried none', () => {
+    const bare = { ...plan, intent: { ...plan.intent, note: undefined } } as Plan
+    expect(keyFacts(bare).map((f) => f.label)).toEqual(['Network fee'])
   })
 
   it('pairs each call with its decoding and keeps the raw bytes', () => {
@@ -133,5 +145,161 @@ describe('the wallet gate', () => {
       address: MAIN,
       chain: BASE,
     })
+  })
+})
+
+describe('what the simulation observed', () => {
+  const simulated = (over: Partial<NonNullable<Plan['simulation']>> = {}): Plan => ({
+    ...plan,
+    simulation: {
+      provider: 'eth_simulateV1',
+      chainId: BASE,
+      blockNumber: '51119499',
+      success: true,
+      assetChanges: [
+        { assetId: `${BASE}/erc20:${USDC}`, symbol: 'USDC', decimals: 6, diff: '-500000000', pre: '1000000000', post: '500000000' },
+      ],
+      gasUsed: '44831',
+      gasUsd: '0.17',
+      resultHash: 'a'.repeat(64),
+      ranAt: '2026-09-10T12:00:00.000Z',
+      ...over,
+    },
+  })
+
+  it('prefers the traced balances over the request, and says which it is showing', () => {
+    const page = simulated()
+    expect(changeSource(page)).toBe('stored')
+    expect(assetChanges(page)).toEqual([
+      { assetId: `${BASE}/erc20:${USDC}`, direction: 'out', amount: '500', symbol: 'USDC', where: 'leaves Main' },
+    ])
+  })
+
+  it('falls back to the request when nothing was traced, and admits it', () => {
+    expect(changeSource(simulated({ assetChanges: [] }))).toBe('request')
+    expect(changeSource(plan)).toBe('request')
+    expect(assetChanges(simulated({ assetChanges: [] }))).toHaveLength(1)
+  })
+
+  it('reads the sign of the change as the direction', () => {
+    const page = simulated({
+      assetChanges: [
+        { assetId: `${BASE}/erc20:${USDC}`, symbol: 'USDC', decimals: 6, diff: '-500000000', pre: '1000000000', post: '500000000' },
+        { assetId: `${BASE}/slip44:60`, symbol: 'ETH', decimals: 18, diff: '2000000000000000', pre: '0', post: '2000000000000000' },
+      ],
+    })
+    expect(assetChanges(page).map((c) => `${c.direction} ${c.amount} ${c.symbol} ${c.where}`)).toEqual([
+      'out 500 USDC leaves Main',
+      'in 0.002 ETH arrives in Main',
+    ])
+  })
+
+  it('shows a token it could not name in that token’s own units', () => {
+    const page = simulated({
+      assetChanges: [
+        { assetId: `${BASE}/erc20:0x1111111111111111111111111111111111111111`, symbol: null, decimals: null, diff: '-4200', pre: '4200', post: '0' },
+      ],
+    })
+    expect(assetChanges(page)[0]).toMatchObject({ amount: '4200', symbol: 'units' })
+  })
+
+  it('names the simulator and calls the result a prediction', () => {
+    expect(simulationNote(simulated())).toBe('Simulated by eth_simulateV1 at block 51119499. A prediction, not a guarantee.')
+  })
+
+  it('says what reverted when the simulation failed', () => {
+    const note = simulationNote(simulated({ success: false, failedCall: 1, revertReason: 'ERC20: transfer amount exceeds balance' }))
+    expect(note).toBe('eth_simulateV1 at block 51119499 — call 1 reverted: ERC20: transfer amount exceeds balance')
+  })
+
+  it('has nothing to say when no simulation ran', () => {
+    expect(simulationNote(plan)).toBeNull()
+  })
+
+  it('shows the fee once something has priced it', () => {
+    const priced = { ...plan, humanPlan: { ...plan.humanPlan, feesUsd: '0.17' } }
+    expect(keyFacts(priced)[0]).toMatchObject({ label: 'Network fee', value: '$0.17', detail: 'estimated' })
+    expect(keyFacts(plan)[0]).toMatchObject({ label: 'Network fee', value: 'Shown by your wallet' })
+  })
+})
+
+describe('a run the browser did while the page was open', () => {
+  const stored = {
+    provider: 'eth_simulateV1',
+    chainId: BASE,
+    blockNumber: '51119499',
+    success: true,
+    assetChanges: [
+      { assetId: `${BASE}/erc20:${USDC}`, symbol: 'USDC', decimals: 6, diff: '-500000000', pre: '1000000000', post: '500000000' },
+    ],
+    gasUsed: '44831',
+    gasUsd: '0.17',
+    resultHash: 'a'.repeat(64),
+    ranAt: '2026-09-10T12:00:00.000Z',
+  }
+  const withStored: Plan = { ...plan, simulation: stored }
+  const live = { ...stored, provider: 'eth_simulateV1 · public RPC', blockNumber: '51200000' }
+
+  /**
+   * The stored run describes the block the plan was built against; the live
+   * one describes the chain the person is about to sign into. When they
+   * disagree, the newer one is the one that matters.
+   */
+  it('outranks the stored run, and the page says which it is showing', () => {
+    expect(changeSource(withStored, live)).toBe('live')
+    expect(changeSource(withStored, null)).toBe('stored')
+    expect(changeSource(plan, null)).toBe('request')
+    expect(simulationNote(withStored, live)).toContain('at block 51200000')
+    expect(simulationNote(withStored, null)).toContain('at block 51119499')
+  })
+
+  it('names its source, so the page never implies a fresher run than it has', () => {
+    expect(changeSource(withStored, live)).toBe('live')
+    expect(changeSource(withStored, null)).toBe('stored')
+    expect(changeSource(plan, null)).toBe('request')
+  })
+
+  it('falls back to the stored run when the browser could not simulate', () => {
+    expect(assetChanges(withStored, null)).toHaveLength(1)
+    expect(changeSource(withStored, null)).toBe('stored')
+  })
+
+  it('turns a fresh revert into the sentence that takes signing away', () => {
+    const refused = { ...live, success: false, failedCall: 1, revertReason: 'ERC20: transfer amount exceeds balance' }
+    expect(liveRefusal(refused)).toBe(
+      'Call 1 reverts against the chain as it is right now: ERC20: transfer amount exceeds balance.',
+    )
+    expect(liveRefusal(live)).toBeNull()
+    expect(liveRefusal(null)).toBeNull()
+  })
+})
+
+describe('the mark on the card', () => {
+  const sim = (success: boolean) => ({
+    provider: 'eth_simulateV1 · public RPC',
+    chainId: BASE,
+    blockNumber: '51200000',
+    success,
+    assetChanges: [],
+    gasUsed: '21000',
+    gasUsd: 'unknown',
+    resultHash: '',
+    ranAt: '2026-09-10T12:00:00.000Z',
+    ...(success ? {} : { failedCall: 1, revertReason: 'ERC20: transfer amount exceeds balance' }),
+  })
+
+  /** Two words, not a paragraph. The reason lives in Advanced review. */
+  it('reads executable when a run succeeded and may fail when it did not', () => {
+    expect(executability(plan, sim(true))).toEqual({ ok: true, label: 'Executable' })
+    expect(executability(plan, sim(false))).toEqual({ ok: false, label: 'May fail' })
+  })
+
+  it('says nothing at all when nothing has run', () => {
+    expect(executability(plan, null)).toBeNull()
+    expect(executability(plan)).toBeNull()
+  })
+
+  it('falls back to the stored run when the browser has none', () => {
+    expect(executability({ ...plan, simulation: sim(false) }, null)).toEqual({ ok: false, label: 'May fail' })
   })
 })
