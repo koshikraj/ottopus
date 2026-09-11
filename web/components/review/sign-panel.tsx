@@ -4,6 +4,7 @@ import { useConnectWallet, useWallets } from '@privy-io/react-auth'
 import { useRouter } from 'next/navigation'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Otto } from '@/components/brand'
+import { InkHold, LoaderDots, TentacleRing } from '@/components/motion'
 import { Button, Dialog } from '@/components/ui'
 import type { Plan, WebTransition } from '@/lib/api'
 import { addChainParams, chainName, evmIdOf, explorerTxUrl } from '@/lib/chains'
@@ -304,23 +305,25 @@ export function SignPanel({ plan, move, open, txHash, recheck }: SignPanelProps)
   }
 
   if (phase.kind === 'submitted') {
+    const link = explorer(phase.txHash)
     return (
-      <div className="flex flex-col gap-2 rounded-[10px] bg-[var(--ot-card)] px-3 py-[11px]">
-        {/* Otto taps the cube: he is watching the chain, and the wait is his, not a bar's. */}
-        <div className="flex items-center gap-3">
-          <Otto pose="tapping" size={56} animated label="Otto, watching the chain" className="-my-2 flex-none" />
-          <div className="flex flex-col gap-0.5">
-            <span className="text-[13.5px] font-semibold">Pending confirmation</span>
-            <p className="m-0 text-[12.5px] leading-[1.45] text-[var(--ot-text-2)]">
-              Your wallet sent it. Close this page if you like — the transaction finishes either way.
-            </p>
-          </div>
-        </div>
-        {explorer(phase.txHash) ? (
-          <a href={explorer(phase.txHash)!} target="_blank" rel="noreferrer" className="text-[12px] text-[var(--ot-plan-text)]">
-            Follow it on the explorer
-          </a>
-        ) : null}
+      <div className="flex flex-col gap-2">
+        {/*
+          The design's ink hold: the one dark loader, for a wait that is
+          settled elsewhere now — on the chain, out of this page's hands —
+          and cannot be cancelled but can be left. The way out is the
+          explorer, which is where the wait actually is.
+        */}
+        <InkHold
+          title="Waiting on the chain"
+          detail={`${chainName(chain)} · your wallet sent it`}
+          onEscape={link ? () => window.open(link, '_blank', 'noreferrer') : undefined}
+          escapeLabel="Follow it on the explorer"
+          className="py-7"
+        />
+        <p className="m-0 text-center text-[12px] leading-[1.45] text-[var(--ot-text-2)]">
+          Close this page if you like — the transaction finishes either way.
+        </p>
         {problem ? <p className="m-0 text-[12px] text-[var(--ot-warn-text)]">{problem}</p> : null}
       </div>
     )
@@ -346,12 +349,18 @@ export function SignPanel({ plan, move, open, txHash, recheck }: SignPanelProps)
 
   return (
     <div className="flex flex-col gap-3">
+      {/*
+        The wait is the screen here, which is what earns it Otto rather than
+        geometry alone. The step list below narrates the handshake; the ring
+        in the button is the design's inline wait.
+      */}
       {phase.kind === 'signing' ? (
-        <div role="status" className="flex items-center gap-3 rounded-[10px] bg-[var(--ot-card)] px-3 py-2">
+        <div className="flex items-center gap-3 rounded-[10px] bg-[var(--ot-card)] px-3 py-2">
           <Otto pose="plan-ready" size={56} animated label="Otto, holding the plan" className="-my-2 flex-none" />
-          <p className="m-0 text-[12.5px] leading-[1.45] text-[var(--ot-text-2)]">
-            <strong className="text-[var(--ot-text)]">Your wallet has it.</strong> Nothing is sent until you approve there.
-          </p>
+          <div className="flex flex-col gap-0.5">
+            <LoaderDots label="Waiting on your wallet" className="font-semibold text-[var(--ot-text)]" />
+            <p className="m-0 text-[12px] leading-[1.45] text-[var(--ot-text-2)]">Nothing is sent until you approve there.</p>
+          </div>
         </div>
       ) : null}
       <PlanStepList
@@ -414,11 +423,25 @@ export function SignPanel({ plan, move, open, txHash, recheck }: SignPanelProps)
         </Button>
         {gate.kind === 'ready' ? (
           <Button variant="primary" size="lg" fullWidth disabled={busy || !ready} onClick={() => void sign()}>
-            {phase.kind === 'signing' ? 'Check your wallet…' : 'Sign'}
+            {phase.kind === 'signing' ? (
+              <span className="inline-flex items-center gap-2">
+                <TentacleRing size={18} tone="current" />
+                Check your wallet
+              </span>
+            ) : (
+              'Sign'
+            )}
           </Button>
         ) : gate.kind === 'wrong_chain' ? (
           <Button variant="primary" size="lg" fullWidth disabled={busy} onClick={switchChain}>
-            {phase.kind === 'switching' ? 'Switching…' : `Switch to ${chainName(chain)}`}
+            {phase.kind === 'switching' ? (
+              <span className="inline-flex items-center gap-2">
+                <TentacleRing size={18} tone="current" />
+                Switching
+              </span>
+            ) : (
+              `Switch to ${chainName(chain)}`
+            )}
           </Button>
         ) : (
           <Button variant="primary" size="lg" fullWidth disabled={!ready} onClick={() => connectWallet({ suggestedAddress: getAddress(wanted) })}>
