@@ -145,7 +145,7 @@ function Row({ row, now, opening, disabled, onOpen }: { row: PlanSummary; now: n
       >
         <span className="col-span-2 flex min-w-0 items-center gap-3 sm:col-span-1">
           <span aria-hidden className="relative h-[34px] w-[34px] flex-none">
-            <AssetIcon url={row.assetIconUrl} name={symbol ?? '?'} size={34} className="text-[12px]" />
+            <AssetIcon url={row.assetIconUrl} name={symbol ?? kindWord(row.kind)} size={34} className="text-[12px]" />
             {row.chainIconUrl ? (
               <span className="absolute -right-px -bottom-px h-[15px] w-[15px] overflow-hidden rounded-full border-2 border-[var(--ot-card)] bg-[var(--ot-card)]">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -154,17 +154,20 @@ function Row({ row, now, opening, disabled, onOpen }: { row: PlanSummary; now: n
             ) : null}
           </span>
           <span className="flex min-w-0 flex-col gap-0.5">
-            {/* The id beside the title, where it has room; on the second line it was what pushed the wallet off. */}
-            <span className="flex items-baseline gap-2">
+            {/*
+              The id and the wallet share the title line, where there is room
+              for both; the second line is what moves, on its own, so a long
+              summary truncates rather than the wallet.
+            */}
+            <span className="flex min-w-0 items-center gap-2">
               <span className="text-[14px] font-semibold">{kindWord(row.kind)}</span>
               <span className="font-mono text-[10.5px] text-[var(--ot-text-3)]">#{row.id.slice(0, 6)}</span>
+              <span className="flex min-w-0 items-center gap-1 text-[12px] text-[var(--ot-text-3)]">
+                {mark ? <WalletMark wallet={mark} size={14} className="flex-none ring-1 ring-[var(--ot-card)]" /> : null}
+                <span className="truncate">{walletName}</span>
+              </span>
             </span>
-            <span className="flex min-w-0 items-center gap-1.5 text-[12px] text-[var(--ot-text-3)]">
-              <span className="min-w-0 truncate">{what}</span>
-              <span aria-hidden>·</span>
-              {mark ? <WalletMark wallet={mark} size={14} className="flex-none ring-1 ring-[var(--ot-card)]" /> : null}
-              <span className="flex-none whitespace-nowrap">{walletName}</span>
-            </span>
+            <span className="truncate text-[12px] text-[var(--ot-text-3)]">{what}</span>
           </span>
         </span>
 
