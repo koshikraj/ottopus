@@ -27,9 +27,9 @@ jobs:
       NEXT_PUBLIC_API_URL: http://localhost:8787/api
     steps:
       - uses: actions/checkout@v4
+      # No version here: package.json pins packageManager, and the action
+      # refuses to be told twice.
       - uses: pnpm/action-setup@v4
-        with:
-          version: 10
       - uses: actions/setup-node@v4
         with:
           node-version: 24
