@@ -259,8 +259,12 @@ export function Frame({
             </Sea>
           ) : (
             <Sea ambient={RAIL_WATER}>
-              <div className="relative flex min-h-0 flex-1">
-                <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+              {/* The section is the scroller, both columns inside it, so the
+                  bar sits at the section's right edge rather than between the
+                  table and the rail. The rail is sticky within it: a short
+                  rail stays in view while a long table scrolls past. */}
+              <div className="ot-scroll relative flex min-h-0 flex-1 overflow-y-auto overscroll-contain">
+                <div className="flex min-w-0 flex-1 flex-col">
                   {balancesLoading ? <SkeletonShelf rows={3} avatar={36} className="m-4 sm:m-[22px]" /> : hasReading && selected ? (
                     <Holdings portfolio={selected} wallets={wallets} show={hasDefi ? 'wallet' : 'all'} />
                   ) : (
@@ -285,16 +289,17 @@ export function Frame({
                     for before. Below xl there is no room for a rail: the
                     protocols stay in the column and the nudge is the overlay. */}
                 {hasReading && selected && hasDefi ? (
-                  <aside aria-label="DeFi positions" className={`hidden min-h-0 shrink-0 flex-col pt-1 xl:flex ${RAIL_WIDTH}`}>
+                  <aside aria-label="DeFi positions" className={`hidden shrink-0 flex-col self-start pt-1 xl:sticky xl:top-0 xl:flex ${RAIL_WIDTH}`}>
                     <Holdings portfolio={selected} wallets={wallets} show="defi" />
                   </aside>
                 ) : (
-                  <aside aria-label="Suggestions" className={`hidden shrink-0 pt-1 xl:block ${RAIL_WIDTH}`}>
+                  <aside aria-label="Suggestions" className={`hidden shrink-0 self-start pt-1 xl:sticky xl:top-0 xl:block ${RAIL_WIDTH}`}>
                     <IntentNudge prompts={prompts} />
                   </aside>
                 )}
-                <IntentNudgeOverlay prompts={prompts} className="xl:hidden" />
               </div>
+              {/* Outside the scroller, so it keeps its corner while the section scrolls. */}
+              <IntentNudgeOverlay prompts={prompts} className="xl:hidden" />
             </Sea>
           )}
         </>
