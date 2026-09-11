@@ -355,10 +355,31 @@ describe('a swap', () => {
   /** A router's own calldata is nobody's to decode; the shape is what is checked. */
   const swapCall = (value = '0') => call(ROUTER, '0xdeadbeef', value)
   const floor = { expectedOut: '1000000', minOut: '995000' }
-  const ok = (intent: Intent, calls: Call[], q = floor) => verify(intent, calls, [ROUTER_ID], undefined, q)
+  /**
+   * A successful, traced simulation: the input left and the floor arrived.
+   * Layer 2 requires same-chain trades to be simulated with traced balances,
+   * so the happy-path helper carries one. Tests that need a specific
+   * simulation (or none) call verify() directly.
+   */
+  const tracedSim = (over: Partial<Simulation> = {}): Simulation => ran({
+    assetChanges: [
+      delta(`${CHAIN}/erc20:${USDC}`, '-500000000', 'USDC', 6),
+      delta(`${CHAIN}/slip44:60`, '1000000', 'ETH', 18),
+    ],
+    tracedAssets: true,
+    ...over,
+  })
+  const ok = (intent: Intent, calls: Call[], q = floor) => verify(intent, calls, [ROUTER_ID], tracedSim(), q)
 
   it('passes as native value to the router, with no approval', async () => {
-    const verdict = await ok(nativeIn, [swapCall('1000')])
+    const nativeSim = ran({
+      assetChanges: [
+        delta(`${CHAIN}/slip44:60`, '-1000', 'ETH', 18),
+        delta(`${CHAIN}/erc20:${USDC}`, '995000', 'USDC', 6),
+      ],
+      tracedAssets: true,
+    })
+    const verdict = await verify(nativeIn, [swapCall('1000')], [ROUTER_ID], nativeSim, floor)
     expect(verdict.ok, JSON.stringify(!verdict.ok && verdict.reasons)).toBe(true)
   })
 
@@ -442,15 +463,217 @@ describe('a swap', () => {
         delta(`${CHAIN}/slip44:60`, '-1000', 'ETH', 18),
         delta(`${CHAIN}/erc20:${USDC}`, '990000', 'USDC', 6),
       ],
+      tracedAssets: true,
       gasUsed: '120000',
       gasUsd: '0.02',
       resultHash: 'c'.repeat(64),
       ranAt: '2026-09-10T12:00:00.000Z',
     }
     const verdict = await verify(nativeIn, [swapCall('1000')], [ROUTER_ID], sim, floor)
-    expect(verdict.ok === false && verdict.reasons).toContain(
-      'the simulation received 990000, below the 995000 the quote promised',
+    expect((verdict.ok === false && verdict.reasons).toString()).toContain(
+      'the simulation received 990000',
     )
+    expect((verdict.ok === false && verdict.reasons).toString()).toContain(
+      'below the 995000 the quote promised',
+    )
+  })
+
+  describe('Layer 1: a trade cannot be a plain transfer', () => {
+    const transfer = (to: string, amount: bigint) =>
+      encodeFunctionData({ abi: KNOWN_ABI, functionName: 'transfer', args: [to, amount] })
+    const transferFrom = (from: string, to: string, amount: bigint) =>
+      encodeFunctionData({ abi: KNOWN_ABI, functionName: 'transferFrom', args: [from, to, amount] })
+
+    /**
+     * The reproduction from the issue: a malicious route provider quotes a
+     * swap and sends `USDC.transfer(attacker, amount)` as the only call.
+     * The shape rules pass, the fabricated minOut makes the page read as a
+     * verified swap, and the money goes to the attacker. Layer 1 blocks it
+     * by reading the calldata itself.
+     */
+    it('blocks a transfer disguised as a swap (the issue reproduction)', async () => {
+      const maliciousCall = call(USDC, transfer(MALLORY, 500_000_000n))
+      const verdict = await ok(tokenIn, [maliciousCall])
+      expect(verdict.ok).toBe(false)
+      expect((verdict.ok === false && verdict.reasons).toString()).toContain(
+        "the trade's last call is a transfer(address,uint256)",
+      )
+      expect((verdict.ok === false && verdict.reasons).toString()).toContain('0x9999…9999')
+    })
+
+    it('blocks a transfer as the second call after an approval', async () => {
+      const maliciousCalls = [
+        call(USDC, approve(ROUTER, 500_000_000n)),
+        call(USDC, transfer(MALLORY, 500_000_000n)),
+      ]
+      const verdict = await ok(tokenIn, maliciousCalls)
+      expect(verdict.ok).toBe(false)
+      expect((verdict.ok === false && verdict.reasons).toString()).toContain(
+        "the trade's last call is a transfer(address,uint256)",
+      )
+    })
+
+    it('blocks a transferFrom disguised as a swap', async () => {
+      const maliciousCall = call(USDC, transferFrom(ALICE, MALLORY, 500_000_000n))
+      const verdict = await ok(tokenIn, [maliciousCall])
+      expect(verdict.ok).toBe(false)
+      expect((verdict.ok === false && verdict.reasons).toString()).toContain(
+        "the trade's last call is a transferFrom(address,address,uint256)",
+      )
+    })
+
+    it('still passes a real router call whose calldata we cannot decode', async () => {
+      // 0xdeadbeef is not in our ABI, so readCalldata returns null and the
+      // rule stands down — exactly as it should for a real aggregator.
+      const verdict = await ok(tokenIn, [call(USDC, approve(ROUTER, 500_000_000n)), swapCall()])
+      expect(verdict.ok, JSON.stringify(!verdict.ok && verdict.reasons)).toBe(true)
+    })
+
+    it('still passes a native input swap to a real router', async () => {
+      const nativeSim = ran({
+        assetChanges: [
+          delta(`${CHAIN}/slip44:60`, '-1000', 'ETH', 18),
+          delta(`${CHAIN}/erc20:${USDC}`, '995000', 'USDC', 6),
+        ],
+        tracedAssets: true,
+      })
+      const verdict = await verify(nativeIn, [swapCall('1000')], [ROUTER_ID], nativeSim, floor)
+      expect(verdict.ok, JSON.stringify(!verdict.ok && verdict.reasons)).toBe(true)
+    })
+  })
+
+  describe('Layer 2: a same-chain trade must be traced', () => {
+    it('blocks a same-chain swap with no simulation', async () => {
+      const verdict = await verify(tokenIn, [call(USDC, approve(ROUTER, 500_000_000n)), swapCall()], [ROUTER_ID], undefined, floor)
+      expect(verdict.ok).toBe(false)
+      expect((verdict.ok === false && verdict.reasons).toString()).toContain(
+        'a same-chain trade must be simulated before it can be reviewed',
+      )
+    })
+
+    it('blocks a same-chain swap with a simulation that did not trace balances', async () => {
+      const untracedSim = ran({
+        assetChanges: [
+          delta(`${CHAIN}/erc20:${USDC}`, '-500000000', 'USDC', 6),
+          delta(`${CHAIN}/slip44:60`, '1000000', 'ETH', 18),
+        ],
+        // tracedAssets is undefined — the run happened but balances were not traced
+      })
+      const verdict = await verify(tokenIn, [call(USDC, approve(ROUTER, 500_000_000n)), swapCall()], [ROUTER_ID], untracedSim, floor)
+      expect(verdict.ok).toBe(false)
+      expect((verdict.ok === false && verdict.reasons).toString()).toContain(
+        'the simulation ran but did not trace balances',
+      )
+    })
+
+    it('passes a same-chain swap with a traced simulation that received the floor', async () => {
+      const verdict = await ok(tokenIn, [call(USDC, approve(ROUTER, 500_000_000n)), swapCall()])
+      expect(verdict.ok, JSON.stringify(!verdict.ok && verdict.reasons)).toBe(true)
+    })
+
+    it('does not require a simulation for a bridge (output lands on another chain)', async () => {
+      const crossing: Intent = {
+        kind: 'bridge',
+        from: `${CHAIN}/erc20:${USDC}`,
+        to: 'eip155:1/slip44:60',
+        amountIn: '500000000',
+      }
+      const verdict = await verify(crossing, [call(USDC, approve(ROUTER, 500_000_000n)), swapCall()], [ROUTER_ID], undefined, floor)
+      expect(verdict.ok, JSON.stringify(!verdict.ok && verdict.reasons)).toBe(true)
+    })
+  })
+
+  describe('Layer 3: a missing output delta counts as zero', () => {
+    it('blocks a traced swap where nothing arrived (the #92 reproduction)', async () => {
+      // The malicious route: USDC.transfer(attacker, amount) disguised as a swap.
+      // Layer 1 already blocks the transfer shape; this test covers the case where
+      // a router call we cannot decode moves the input elsewhere and nothing arrives.
+      const nothingArrived = ran({
+        assetChanges: [
+          delta(`${CHAIN}/erc20:${USDC}`, '-500000000', 'USDC', 6),
+          // No ETH change — the input left but nothing came back
+        ],
+        tracedAssets: true,
+      })
+      const verdict = await verify(tokenIn, [call(USDC, approve(ROUTER, 500_000_000n)), swapCall()], [ROUTER_ID], nothingArrived, floor)
+      expect(verdict.ok).toBe(false)
+      expect((verdict.ok === false && verdict.reasons).toString()).toContain(
+        'received 0 of',
+      )
+      expect((verdict.ok === false && verdict.reasons).toString()).toContain(
+        'below the 995000 the quote promised',
+      )
+    })
+
+    it('blocks a traced swap that received less than the floor', async () => {
+      const lessThanFloor = ran({
+        assetChanges: [
+          delta(`${CHAIN}/erc20:${USDC}`, '-500000000', 'USDC', 6),
+          delta(`${CHAIN}/slip44:60`, '500000', 'ETH', 18), // only half the floor
+        ],
+        tracedAssets: true,
+      })
+      const verdict = await verify(tokenIn, [call(USDC, approve(ROUTER, 500_000_000n)), swapCall()], [ROUTER_ID], lessThanFloor, floor)
+      expect(verdict.ok).toBe(false)
+      expect((verdict.ok === false && verdict.reasons).toString()).toContain(
+        'the simulation received 500000',
+      )
+      expect((verdict.ok === false && verdict.reasons).toString()).toContain(
+        'below the 995000 the quote promised',
+      )
+    })
+
+    it('passes a traced swap that received exactly the floor', async () => {
+      const exactlyFloor = ran({
+        assetChanges: [
+          delta(`${CHAIN}/erc20:${USDC}`, '-500000000', 'USDC', 6),
+          delta(`${CHAIN}/slip44:60`, '995000', 'ETH', 18),
+        ],
+        tracedAssets: true,
+      })
+      const verdict = await verify(tokenIn, [call(USDC, approve(ROUTER, 500_000_000n)), swapCall()], [ROUTER_ID], exactlyFloor, floor)
+      expect(verdict.ok, JSON.stringify(!verdict.ok && verdict.reasons)).toBe(true)
+    })
+  })
+
+  describe('nativeFee regression: a relayer fee is expected, not suspicious', () => {
+    it('warns but does not block when the simulation shows the declared native fee leaving', async () => {
+      // A token-input swap whose relayer charges 0.001 ETH. The simulation
+      // shows USDC leaving (the input) and ETH leaving (the fee), plus ETH
+      // arriving (the output). Before the nativeFee fix, the ETH outflow was
+      // blocked as "an asset the plan does not mention".
+      const ethFloor = { expectedOut: '1000000000000000000', minOut: '995000000000000000' } // 1 ETH expected, 0.995 ETH floor
+      const withFee = ran({
+        assetChanges: [
+          delta(`${CHAIN}/erc20:${USDC}`, '-500000000', 'USDC', 6),
+          delta(`${CHAIN}/slip44:60`, '-1000000000000000', 'ETH', 18), // 0.001 ETH fee
+          delta(`${CHAIN}/slip44:60`, '1000000000000000000', 'ETH', 18), // 1 ETH output
+        ],
+        tracedAssets: true,
+      })
+      const quoteWithFee = { ...ethFloor, nativeFee: '1000000000000000' }
+      const verdict = await verify(tokenIn, [call(USDC, approve(ROUTER, 500_000_000n)), swapCall()], [ROUTER_ID], withFee, quoteWithFee)
+      expect(verdict.ok, JSON.stringify(!verdict.ok && verdict.reasons)).toBe(true)
+      expect(verdict.warnings.map((w) => w.code)).toContain('route_native_fee_simulated')
+    })
+
+    it('blocks when the native outflow exceeds the declared fee', async () => {
+      const ethFloor = { expectedOut: '1000000000000000000', minOut: '995000000000000000' }
+      const withExcessFee = ran({
+        assetChanges: [
+          delta(`${CHAIN}/erc20:${USDC}`, '-500000000', 'USDC', 6),
+          delta(`${CHAIN}/slip44:60`, '-5000000000000000', 'ETH', 18), // 0.005 ETH, but fee declared as 0.001
+          delta(`${CHAIN}/slip44:60`, '1000000000000000000', 'ETH', 18), // 1 ETH output
+        ],
+        tracedAssets: true,
+      })
+      const quoteWithFee = { ...ethFloor, nativeFee: '1000000000000000' }
+      const verdict = await verify(tokenIn, [call(USDC, approve(ROUTER, 500_000_000n)), swapCall()], [ROUTER_ID], withExcessFee, quoteWithFee)
+      expect(verdict.ok).toBe(false)
+      expect((verdict.ok === false && verdict.reasons).toString()).toContain(
+        'leaving the wallet as well, which the plan does not mention',
+      )
+    })
   })
 })
 
@@ -517,6 +740,7 @@ describe('a bridge', () => {
         delta(`${CHAIN}/erc20:${USDC}`, '-500000000', 'USDC', 6),
         delta(`${CHAIN}/slip44:60`, '1', 'ETH', 18),
       ],
+      tracedAssets: true,
       gasUsed: '210000',
       gasUsd: '0.04',
       resultHash: 'e'.repeat(64),
@@ -571,7 +795,15 @@ describe('native value a route declares', () => {
 
   it('still lets a native-input trade send its own value freely', async () => {
     const native: Intent = { kind: 'swap', from: `${CHAIN}/slip44:60`, to: `${CHAIN}/erc20:${USDC}`, amountIn: '1000' }
-    const verdict = await verify(native, [call(ROUTER, '0xdeadbeef', '1000')], [ROUTER_ID], undefined, floor)
+    const nativeFloor = { expectedOut: '1000000', minOut: '995000' }
+    const sim: Simulation = ran({
+      assetChanges: [
+        delta(`${CHAIN}/slip44:60`, '-1000', 'ETH', 18),
+        delta(`${CHAIN}/erc20:${USDC}`, '995000', 'USDC', 6),
+      ],
+      tracedAssets: true,
+    })
+    const verdict = await verify(native, [call(ROUTER, '0xdeadbeef', '1000')], [ROUTER_ID], sim, nativeFloor)
     expect(verdict.ok, JSON.stringify(!verdict.ok && verdict.reasons)).toBe(true)
   })
 })

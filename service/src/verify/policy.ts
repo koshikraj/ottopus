@@ -294,7 +294,7 @@ const simulationOutcome: Rule = ({ simulation }) => {
  * agreed to. A *different* asset leaving is always a block, whatever its
  * size, because the person never agreed to that one at all.
  */
-const simulationMatchesIntent: Rule = ({ intent, simulation }) => {
+const simulationMatchesIntent: Rule = ({ intent, simulation, quote }) => {
   // A custom intent has a list of bounds rather than one source asset; the
   // custom tier compares the run against the declaration instead.
   if (intent.kind === 'custom') return []
@@ -306,10 +306,41 @@ const simulationMatchesIntent: Rule = ({ intent, simulation }) => {
   const findings: Finding[] = []
   const mine = simulation.assetChanges.find((c) => c.assetId.toLowerCase() === sourceAsset)
 
+  /**
+   * The route's declared native fee. Once trades simulate (Layer 2), the
+   * relayer's fee shows up as the chain's own currency leaving the wallet.
+   * Without this, every real swap/bridge that pays a native relayer fee is
+   * blocked as "an asset the plan does not mention" — the regression Layer 2
+   * introduces. The route declares the fee in the quote (nativeValue rule
+   * already reads it for the calls), so a native outflow up to that amount is
+   * expected and only warns; above it is still a block.
+   */
+  const declaredNativeFee = quote?.nativeFee ? BigInt(quote.nativeFee) : 0n
+  const sourceChain = sourceChainOf(intent)
+
   for (const change of simulation.assetChanges) {
     if (change.assetId.toLowerCase() === sourceAsset) continue
     if (BigInt(change.diff) >= 0n) continue
     const name = change.symbol ?? change.assetId
+    // A native outflow that the route declared as its fee: expected, warn only.
+    // Applies only when the input is not already the native asset (if it is,
+    // the outflow is measured against the promised amount above, not here).
+    if (
+      declaredNativeFee > 0n &&
+      isNativeAsset(change.assetId) &&
+      sameChain(parseChainId(change.assetId.split('/')[0] ?? sourceChain), sourceChain) &&
+      -BigInt(change.diff) <= declaredNativeFee
+    ) {
+      findings.push({
+        warn: {
+          severity: 'caution' as const,
+          code: 'route_native_fee_simulated',
+          message: `the simulation shows ${name} leaving as the route's declared relayer fee`,
+          saferAlternative: 'This fee was declared in the quote and is expected.',
+        },
+      })
+      continue
+    }
     findings.push({
       block: `the simulation shows ${name} leaving the wallet as well, which the plan does not mention`,
     })
@@ -451,6 +482,30 @@ const tradeRules: Rule = (input) => {
     findings.push({ block: `the trade targets ${short(router.to)}, which has no code on ${chainName(router.chainId)}` })
   }
 
+  /**
+   * Layer 1: Calldata rule — a trade's last call must not be a plain transfer.
+   *
+   * A router's calldata is opaque to us, but a transfer is not. A malicious
+   * route provider can quote a swap and send `USDC.transfer(attacker, amount)`
+   * as the only call; the shape rules pass (one call, no approval, the target
+   * is a contract), and the fabricated minOut makes the page read as a verified
+   * swap. Reading the bytes ourselves blocks this outright, with no simulation
+   * needed, and it still holds on a chain nothing can simulate.
+   *
+   * transferFrom is included for the same reason: a plan that pulls from the
+   * wallet to a recipient the intent never named is a transfer in router's
+   * clothing. The approval rule already catches an approval that does not match
+   * the called contract, so a transferFrom to a third party is the remaining
+   * shape.
+   */
+  const routerRead = readCalldata(router)
+  if (routerRead && (routerRead.signature === 'transfer(address,uint256)' || routerRead.signature === 'transferFrom(address,address,uint256)')) {
+    const recipient = routerRead.signature === 'transfer(address,uint256)' ? String(routerRead.args[0]) : String(routerRead.args[1])
+    findings.push({
+      block: `the trade's last call is a ${routerRead.signature} to ${short(`${router.chainId}:${recipient}`)}, which moves the input to a single recipient rather than executing a swap; a trade must call a router, not a token transfer`,
+    })
+  }
+
   // The approval, if the plan carries one, read off the calldata.
   const approval = calls.length === 2 ? approvalIn(calls[0]!) : null
   if (calls.length === 2 && !approval) {
@@ -496,21 +551,64 @@ const tradeRules: Rule = (input) => {
   }
 
   /**
-   * What the run observed arriving, when one has run. The only check that can
-   * tell a promised floor from a kept one.
+   * Layer 2: A same-chain trade must be traced by a simulation.
    *
-   * It stands down for a bridge. The output lands on another chain, minutes
-   * later, so a source-chain simulation cannot see it and an absent arrival
-   * proves nothing — blocking on it would refuse every bridge. Explicit
-   * rather than incidental: the rule is skipped because it cannot apply, not
-   * because nobody thought about it.
+   * Asymmetric on purpose. For a transfer, the calldata is the whole story
+   * and a simulation is a nice-to-have; for a trade, the router's calldata
+   * is opaque to us and the simulation is the only evidence that anything
+   * arrived at all. A same-chain swap with no simulation, or with a
+   * simulation that did not trace balances, cannot be reviewed on its
+   * outcome — and the shape rules alone (Layer 1) cannot tell a real swap
+   * from a transfer to an attacker dressed as a router call.
+   *
+   * Bridges stand down: the output lands on another chain, minutes later, so
+   * a source-chain simulation cannot see it and an absent arrival proves
+   * nothing. Explicit rather than incidental: the rule is skipped because it
+   * cannot apply, not because nobody thought about it.
    */
   const sim = input.simulation
-  if (sim?.success && minOut !== undefined && !crossesChains(intent)) {
-    const arrived = sim.assetChanges.find((c) => c.assetId.toLowerCase() === intent.to.toLowerCase())
-    if (arrived && BigInt(arrived.diff) < BigInt(minOut)) {
+  const isCrossChain = crossesChains(intent)
+  if (!isCrossChain) {
+    if (!sim) {
       findings.push({
-        block: `the simulation received ${arrived.diff}, below the ${minOut} the quote promised`,
+        block: 'a same-chain trade must be simulated before it can be reviewed; no simulation was run',
+      })
+    } else if (!sim.success) {
+      // simulationOutcome already blocks a failed run; this is redundant but
+      // keeps the "must be traced" logic in one place for clarity.
+    } else if (sim.tracedAssets !== true) {
+      findings.push({
+        block: 'the simulation ran but did not trace balances; a same-chain trade must be reviewed on traced balance changes, not on shape alone',
+      })
+    }
+  }
+
+  /**
+   * Layer 3: A missing output delta counts as zero.
+   *
+   * The old rule only checked `arrived.diff` when `arrived` existed. If the
+   * simulator omitted a zero-change balance (or the malicious route moved the
+   * input elsewhere and nothing arrived), `arrived` was undefined and the
+   * check silently passed — exactly the reproduction in #92. With
+   * `tracedAssets` (Layer 2) guaranteeing the run actually looked, an absent
+   * arrival now means "traced, and nothing arrived" — which is zero, and
+   * zero is below any positive floor.
+   *
+   * Bridges still stand down for the same reason as Layer 2.
+   */
+  if (sim?.success && sim.tracedAssets === true && minOut !== undefined && !isCrossChain) {
+    // Net change: a trade may both receive the output and pay a native fee
+    // from the same asset (e.g. ETH in -> ETH out with relayer fee). Taking
+    // only the first delta would count the fee as the arrival and block every
+    // real trade; summing gives the net received, which is what the floor
+    // promises.
+    const outputDeltas = sim.assetChanges.filter((c) => c.assetId.toLowerCase() === intent.to.toLowerCase())
+    const received = outputDeltas.reduce((sum, c) => sum + BigInt(c.diff), 0n)
+    if (received < BigInt(minOut)) {
+      findings.push({
+        block: outputDeltas.length > 0
+          ? `the simulation received ${received.toString()} (net of ${outputDeltas.length} balance changes), below the ${minOut} the quote promised`
+          : `the simulation traced balances and received 0 of ${intent.to}, below the ${minOut} the quote promised`,
       })
     }
   }
