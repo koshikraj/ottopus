@@ -100,6 +100,42 @@ function isUnsupported(err: unknown): boolean {
   return e?.code === 4200 || e?.code === -32601 || e?.code === -32603 || /not supported|unsupported|not found/i.test(e?.message ?? '')
 }
 
+/**
+ * What the wallet says about batching, for the page to say so too.
+ *
+ * Three states, and that is the whole point. This used to be a boolean that
+ * gated the send path, so every way the call can fail — forwarded to an RPC
+ * node, not passed through by the provider, keyed unexpectedly,
+ * rate-limited — collapsed into "cannot batch" and took the feature with it.
+ *
+ * Nothing acts on this. `sendPlanCalls` offers the batch regardless and lets
+ * the wallet's own refusal decide. A wrong answer here costs a label.
+ */
+export type Batching = 'yes' | 'no' | 'unknown'
+
+export async function probeBatching(provider: Eip1193, from: string, chainId: string): Promise<Batching> {
+  const key = hexChain(chainId)
+  try {
+    const caps = (await provider.request({
+      method: 'wallet_getCapabilities',
+      params: [forWallet(from), [key]],
+    })) as Record<string, { atomic?: { status?: string }; atomicBatch?: { supported?: boolean } }> | undefined
+    // Keyed by hex chain id per EIP-5792, with a decimal fallback for wallets
+    // that write it the other way, and a flat object for those that answer
+    // for the one chain they were asked about.
+    const forChain = caps?.[key] ?? caps?.[String(Number(chainId.split(':')[1]))] ?? (caps as never)
+    const status = (forChain as { atomic?: { status?: string } } | undefined)?.atomic?.status
+    const legacy = (forChain as { atomicBatch?: { supported?: boolean } } | undefined)?.atomicBatch?.supported
+    // `ready` means a 7702 account that will upgrade when asked, which is a
+    // yes to the person even though it is not one yet.
+    if (status === 'supported' || status === 'ready' || legacy === true) return 'yes'
+    if (status !== undefined || legacy !== undefined) return 'no'
+    return 'unknown'
+  } catch {
+    return 'unknown'
+  }
+}
+
 const POLL_MS = 1_500
 const CALLS_TIMEOUT_MS = 3 * 60_000
 

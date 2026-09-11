@@ -1,6 +1,6 @@
 import { getAddress } from 'viem'
 import { describe, expect, it } from 'vitest'
-import { BatchAccepted, SequentialNeedsConsent, sendPlanCalls } from './send-calls'
+import { BatchAccepted, SequentialNeedsConsent, probeBatching, sendPlanCalls } from './send-calls'
 
 /**
  * The provider answered from memory. What is under test is the one rule that
@@ -188,5 +188,66 @@ describe('deciding whether to batch', () => {
       sendPlanCalls({ provider: p, from: FROM, chainId: CHAIN, calls: [CALL], sequentialIsSafe: true }),
     ).rejects.toThrow(/insufficient funds/)
     expect(p.calls).not.toContain('eth_sendTransaction')
+  })
+})
+
+/**
+ * Read for the label and nothing else. It was a boolean gating the send path,
+ * and every way the call can fail collapsed into "cannot batch" and took the
+ * feature with it. Three states keep "could not ask" apart from "no".
+ */
+describe('asking the wallet whether it batches', () => {
+  const caps = (body: unknown) => provider({ wallet_getCapabilities: () => body })
+
+  it('reads yes from either spelling, and from a 7702 account that would upgrade', async () => {
+    for (const body of [
+      { '0x2105': { atomic: { status: 'supported' } } },
+      { '0x2105': { atomic: { status: 'ready' } } },
+      { '0x2105': { atomicBatch: { supported: true } } },
+      // Keyed in decimal by a wallet that writes it that way.
+      { '8453': { atomic: { status: 'supported' } } },
+      // Answered flat, for the one chain it was asked about.
+      { atomic: { status: 'supported' } },
+    ]) {
+      expect(await probeBatching(caps(body), FROM, CHAIN), JSON.stringify(body)).toBe('yes')
+    }
+  })
+
+  it('reads no only when the wallet actually said no', async () => {
+    expect(await probeBatching(caps({ '0x2105': { atomic: { status: 'unsupported' } } }), FROM, CHAIN)).toBe('no')
+    expect(await probeBatching(caps({ '0x2105': { atomicBatch: { supported: false } } }), FROM, CHAIN)).toBe('no')
+  })
+
+  it('says unknown rather than no when it could not be asked', async () => {
+    expect(await probeBatching(provider({}), FROM, CHAIN)).toBe('unknown')
+    expect(await probeBatching(caps({}), FROM, CHAIN)).toBe('unknown')
+    expect(await probeBatching(caps({ '0xa4b1': { atomic: { status: 'supported' } } }), FROM, CHAIN)).toBe('unknown')
+  })
+
+  /** The casing that made a Safe refuse `wallet_sendCalls` outright. */
+  it('asks with a checksummed address', async () => {
+    let asked: unknown[] = []
+    const p = {
+      async request({ params = [] }: { method: string; params?: unknown[] }) {
+        asked = params
+        return { '0x2105': { atomic: { status: 'supported' } } }
+      },
+    }
+    await probeBatching(p, FROM, CHAIN)
+    expect(asked[0]).toBe(getAddress(FROM))
+    expect(asked[1]).toEqual(['0x2105'])
+  })
+
+  it('is not consulted when sending', async () => {
+    const p = provider({
+      wallet_getCapabilities: () => ({ '0x2105': { atomic: { status: 'unsupported' } } }),
+      wallet_sendCalls: () => ({ id: 'batch-3' }),
+      wallet_getCallsStatus: () => ({ status: 200, receipts: [{ transactionHash: '0x' + 'ab'.repeat(32) }] }),
+    })
+    // The wallet says no and the batch is offered anyway; its refusal, not
+    // its opinion, is what decides.
+    const sent = await sendPlanCalls({ provider: p, from: FROM, chainId: CHAIN, calls: [CALL], sequentialIsSafe: true })
+    expect(sent.method).toBe('sendCalls')
+    expect(p.calls).not.toContain('wallet_getCapabilities')
   })
 })
