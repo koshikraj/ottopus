@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation'
 import { useEffect, useState, type ReactNode } from 'react'
 import { RequireSession, usePrivyAvailable } from '@/components/auth'
 import { Otto } from '@/components/brand'
-import { StillnessProvider } from '@/components/motion'
+import { BubbleField, SeaLife, type SeaCreature } from '@/components/motion'
 import { Button, Callout, StatusChip } from '@/components/ui'
 import type { Plan, PlanStatusName } from '@/lib/api'
 import { cn } from '@/lib/cn'
@@ -19,8 +19,9 @@ import { useSimulation } from './use-simulation'
 
 /**
  * P4. The link is usually opened on a phone from a chat, to decide one thing.
- * No ambient motion on this route — the water is held — and no nav: the card
- * is the page.
+ * No nav: the card is the page. It stands on the same water as the portfolio,
+ * and the water stays in the gutters — the card is opaque and nothing ambient
+ * ever passes behind an amount.
  *
  * Every dead link is one state. The service answers tampered, expired,
  * superseded and someone-else's with the same 404, and this page does not
@@ -167,20 +168,33 @@ function useClock(running: boolean): number {
   return now
 }
 
+/**
+ * The portfolio's creatures are drawn for the lower half of a tall column.
+ * Here the card sits at the top and centre, so they keep to the sides: a fish
+ * crossing the left gutter, a jelly rising up the right, a crab on the floor.
+ */
+const GUTTER_LIFE: readonly SeaCreature[] = [
+  { species: 'fish', left: 4, top: 34, size: 22, travel: 120, lift: -12, delay: 0, duration: 52, opacity: 0.85 },
+  { species: 'jelly', left: 90, top: 58, size: 24, travel: 14, lift: -120, delay: 7, duration: 38, opacity: 0.7 },
+  { species: 'crab', left: 10, top: 93, size: 20, travel: 70, lift: 0, delay: 3, duration: 30, opacity: 0.8 },
+]
+
 function Ground({ children, wide = false }: { children: ReactNode; wide?: boolean }) {
   return (
-    <StillnessProvider held>
-      <main
-        className={cn(
-          'ot-canvas relative flex min-h-dvh justify-center overflow-x-hidden px-0 py-0 sm:px-5 sm:py-11',
-          // A plan sits at the top on a wide screen because the panel beside
-          // it is taller than the card; a dead link is short and centres.
-          wide ? 'items-start' : 'items-start sm:items-center',
-        )}
-      >
-        <div className={cn('relative w-full', wide ? 'max-w-[440px] lg:max-w-[824px]' : 'max-w-[440px]')}>{children}</div>
-      </main>
-    </StillnessProvider>
+    <main
+      className={cn(
+        'ot-review-sea relative flex min-h-dvh justify-center overflow-x-hidden px-0 py-0 sm:px-5 sm:py-11',
+        // A plan sits at the top on a wide screen because the panel beside
+        // it is taller than the card; a dead link is short and centres.
+        wide ? 'items-start' : 'items-start sm:items-center',
+      )}
+    >
+      <div aria-hidden className="ot-caustic" />
+      <div aria-hidden className="ot-caustic ot-caustic--b" />
+      <BubbleField pattern="canvas" />
+      <SeaLife creatures={GUTTER_LIFE} />
+      <div className={cn('relative w-full', wide ? 'max-w-[440px] lg:max-w-[824px]' : 'max-w-[440px]')}>{children}</div>
+    </main>
   )
 }
 
