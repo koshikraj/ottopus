@@ -549,7 +549,8 @@ export interface Simulation {
  * must never make a plan unreadable.
  */
 export interface Visuals {
-  assets: Record<string, { symbol: string; name: string; iconUrl: string | null }>
+  /** `priceUsd` is today's, from whoever knew the asset; null when nobody prices it. */
+  assets: Record<string, { symbol: string; name: string; iconUrl: string | null; priceUsd: number | null }>
   chains: Record<string, ChainVisual>
   wallets: Record<string, { walletType: string; label: string | null }>
 }
