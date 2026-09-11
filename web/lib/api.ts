@@ -549,7 +549,8 @@ export interface Simulation {
  * must never make a plan unreadable.
  */
 export interface Visuals {
-  assets: Record<string, { symbol: string; name: string; iconUrl: string | null }>
+  /** `priceUsd` is today's, from whoever knew the asset; null when nobody prices it. */
+  assets: Record<string, { symbol: string; name: string; iconUrl: string | null; priceUsd: number | null }>
   chains: Record<string, ChainVisual>
   wallets: Record<string, { walletType: string; label: string | null }>
 }
@@ -587,9 +588,11 @@ export function readReview(credentials: Credentials, token: string): Promise<Rev
 
 /** The transitions a browser may write. Anything else is the service's to decide. */
 export type WebTransition =
-  | { status: 'awaiting_review' | 'awaiting_signature' | 'confirmed' | 'cancelled' }
+  | { status: 'awaiting_review' | 'awaiting_signature' | 'cancelled' }
   | { status: 'submitted'; detail: { txHash: string } }
-  | { status: 'failed'; detail?: { reason: string } }
+  /** The hash rides along, as it does from the receipt job, so a reopened page can still point at the explorer. */
+  | { status: 'confirmed'; detail?: { txHash: string } }
+  | { status: 'failed'; detail?: { reason: string; txHash?: string } }
 
 export function movePlan(
   credentials: Credentials,
@@ -609,12 +612,15 @@ export interface PlanSummary {
   id: string
   version: number
   status: PlanStatusName
-  kind: 'transfer' | 'swap' | 'bridge' | 'supply'
+  kind: 'transfer' | 'swap' | 'bridge' | 'supply' | 'custom'
   summary: string
   reason: string
   account: { caip10: string; label?: string }
   chainId: string
+  /** What the plan pays. On a custom plan this is the first declared ceiling, not a figure. */
   asset: { id: string; amount: string; symbol: string | null; decimals: number | null } | null
+  /** The other side of a trade, so a row can read "USDC → ETH". */
+  toAsset: { id: string; symbol: string | null } | null
   recipient: { address: string; name: string | null } | null
   blockedReason: string | null
   createdVia: 'agent' | 'web'

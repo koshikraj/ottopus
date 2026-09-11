@@ -152,6 +152,22 @@ export function assetChanges(plan: Plan, live?: Simulation | null): AssetChange[
   return []
 }
 
+/**
+ * "≈ $1,234.56" for a formatted amount at today's price, or null when there
+ * is no price or the amount is dust the formatter already rounded away. An
+ * estimate beside a figure that must never round — hence the ≈, and hence
+ * it is never the number the person signs.
+ */
+export function approxUsd(amount: string, priceUsd: number | null | undefined): string | null {
+  if (priceUsd === null || priceUsd === undefined || !(priceUsd > 0)) return null
+  if (amount.startsWith('<')) return null
+  const value = Number(amount.replace(/,/g, ''))
+  if (!Number.isFinite(value)) return null
+  const usd = value * priceUsd
+  if (usd < 0.01) return '< $0.01'
+  return `≈ $${usd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+}
+
 /** The CAIP-2 chain an asset id names. */
 function chainOfAsset(assetId: string): string {
   const [namespace, rest] = assetId.split(':')
@@ -286,8 +302,7 @@ export interface StandingApproval {
 export function standingApproval(plan: Plan): StandingApproval | null {
   const grant = approvals(plan)[0]
   if (!grant) return null
-  const spent = sourceAssetIdOf(plan)
-  const words = spent === null ? null : assetWords(plan, spent)
+  const words = approvalWords(plan, grant)
   return {
     spender: grant.spender,
     amount: grant.unlimited ? 'unlimited' : words ? formatAmount(grant.amount, words.decimals) : grant.amount,
@@ -305,16 +320,78 @@ export function sourceAssetIdOf(plan: Plan): string | null {
   return null
 }
 
-/** The approvals a plan carries, for the callout. */
-export function approvals(plan: Plan): { spender: string; amount: string; unlimited: boolean }[] {
+export interface Approval {
+  spender: string
+  amount: string
+  unlimited: boolean
+  /** The token being approved — the call's target — as a CAIP-19 id. */
+  asset: string
+  /** What the decoder called the spender, when it is one of the plan's own targets. */
+  spenderName: string | null
+}
+
+/** The approvals a plan carries, for the heads-up. */
+export function approvals(plan: Plan): Approval[] {
+  const chain = chainOfPlan(plan)
   return plan.decodedActions.flatMap((a) =>
-    a.approval ? [{ spender: a.approval.spender, amount: a.approval.amount, unlimited: a.approval.amount === 'unlimited' }] : [],
+    a.approval
+      ? [
+          {
+            spender: a.approval.spender,
+            amount: a.approval.amount,
+            unlimited: a.approval.amount === 'unlimited',
+            asset: `${chain}/erc20:${addressOf(a.target).toLowerCase()}`,
+            spenderName:
+              plan.decodedActions.find((b) => addressOf(b.target).toLowerCase() === addressOf(a.approval!.spender).toLowerCase())
+                ?.contractName ?? null,
+          },
+        ]
+      : [],
   )
+}
+
+/**
+ * The words for an approved token. The token is the call's target, which on
+ * a swap or a custom plan is not necessarily the asset the plan spends — so
+ * the target is asked first and the spent asset is only the fallback.
+ */
+export function approvalWords(plan: Plan, grant: Approval): AssetWords | null {
+  const byTarget = assetWords(plan, grant.asset)
+  if (byTarget) return byTarget
+  const spent = sourceAssetIdOf(plan)
+  return spent === null ? null : assetWords(plan, spent)
+}
+
+/** "unlimited", "1,000 USDC", or the raw figure when nothing names it. */
+export function approvalAmount(plan: Plan, grant: Approval): string {
+  if (grant.unlimited) return 'unlimited'
+  const words = approvalWords(plan, grant)
+  return words ? `${formatAmount(grant.amount, words.decimals)} ${words.symbol}` : grant.amount
 }
 
 /** Warnings worth a banner: anything above info. */
 export function bannerWarnings(plan: Plan): PlanWarning[] {
   return plan.humanPlan.warnings.filter((w) => w.severity !== 'info')
+}
+
+/**
+ * Everything a person should read before signing, counted, and how bad the
+ * worst of it is. The card says the count and where to look; the heads-up
+ * panel says the rest.
+ */
+export interface HeadsUp {
+  grants: Approval[]
+  warnings: PlanWarning[]
+  count: number
+  worst: 'caution' | 'block' | null
+}
+
+export function headsUp(plan: Plan): HeadsUp {
+  const grants = approvals(plan)
+  const warnings = bannerWarnings(plan)
+  const count = grants.length + warnings.length
+  const block = grants.some((g) => g.unlimited) || warnings.some((w) => w.severity === 'block')
+  return { grants, warnings, count, worst: count === 0 ? null : block ? 'block' : 'caution' }
 }
 
 export interface DecodedRow {

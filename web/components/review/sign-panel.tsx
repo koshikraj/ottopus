@@ -4,6 +4,7 @@ import { useConnectWallet, useWallets } from '@privy-io/react-auth'
 import { useRouter } from 'next/navigation'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Otto } from '@/components/brand'
+import { LoaderDots, TentacleRing } from '@/components/motion'
 import { Button, Dialog } from '@/components/ui'
 import type { Plan, WebTransition } from '@/lib/api'
 import { addChainParams, chainName, evmIdOf, explorerTxUrl } from '@/lib/chains'
@@ -157,10 +158,10 @@ export function SignPanel({ plan, move, open, txHash, recheck }: SignPanelProps)
         const provider = await wallet.getEthereumProvider()
         const outcome = await waitForReceipt(provider, hash)
         if (outcome === 'success') {
-          await move({ status: 'confirmed' })
+          await move({ status: 'confirmed', detail: { txHash: hash } })
           setPhase({ kind: 'confirmed', txHash: hash })
         } else {
-          await move({ status: 'failed', detail: { reason: 'reverted' } })
+          await move({ status: 'failed', detail: { reason: 'reverted', txHash: hash } })
           setPhase({ kind: 'failed', txHash: hash, reason: 'The transaction reverted on chain.' })
         }
       } catch {
@@ -284,12 +285,7 @@ export function SignPanel({ plan, move, open, txHash, recheck }: SignPanelProps)
   if (phase.kind === 'confirmed') {
     return (
       <div className="flex flex-col items-center gap-2.5 text-center">
-        <div className="relative flex h-[88px] w-[88px] items-center justify-center">
-          <span aria-hidden className="ot-settle-ripple absolute h-16 w-16 rounded-full bg-[var(--ot-navy-soft)]" />
-          <div className="relative">
-            <Otto pose="confirmed" size={88} label="Otto, arms up" />
-          </div>
-        </div>
+        <Settled />
         <span className="font-[family-name:var(--ot-font-display)] text-[19px] font-bold">Signed and settled</span>
         <p className="m-0 text-[12.5px] leading-[1.45] text-[var(--ot-text-2)]">
           {plan.humanPlan.summary}. Confirmed on {chainName(chain)}.
@@ -311,13 +307,16 @@ export function SignPanel({ plan, move, open, txHash, recheck }: SignPanelProps)
   if (phase.kind === 'submitted') {
     return (
       <div className="flex flex-col gap-2 rounded-[10px] bg-[var(--ot-card)] px-3 py-[11px]">
-        <div className="flex items-center gap-2">
-          <span aria-hidden className="ot-ring h-4 w-4 flex-none rounded-full border-2 border-[var(--ot-plan-border)] border-t-[var(--ot-plan)]" />
-          <span className="text-[13.5px] font-semibold">Pending confirmation</span>
+        {/* Otto taps the cube: he is watching the chain, and the wait is his, not a bar's. */}
+        <div className="flex items-center gap-3">
+          <Otto pose="tapping" size={56} animated label="Otto, watching the chain" className="-my-2 flex-none" />
+          <div className="flex flex-col gap-0.5">
+            <LoaderDots label="Pending confirmation" className="font-semibold text-[var(--ot-text)]" />
+            <p className="m-0 text-[12.5px] leading-[1.45] text-[var(--ot-text-2)]">
+              Your wallet sent it. Close this page if you like — the transaction finishes either way.
+            </p>
+          </div>
         </div>
-        <p className="m-0 text-[12.5px] leading-[1.45] text-[var(--ot-text-2)]">
-          Your wallet sent it. Close this page if you like — the transaction finishes either way.
-        </p>
         {explorer(phase.txHash) ? (
           <a href={explorer(phase.txHash)!} target="_blank" rel="noreferrer" className="text-[12px] text-[var(--ot-plan-text)]">
             Follow it on the explorer
@@ -348,6 +347,20 @@ export function SignPanel({ plan, move, open, txHash, recheck }: SignPanelProps)
 
   return (
     <div className="flex flex-col gap-3">
+      {/*
+        The wait is the screen here, which is what earns it Otto rather than
+        geometry alone. The step list below narrates the handshake; the ring
+        in the button is the design's inline wait.
+      */}
+      {phase.kind === 'signing' ? (
+        <div className="flex items-center gap-3 rounded-[10px] bg-[var(--ot-card)] px-3 py-2">
+          <Otto pose="plan-ready" size={56} animated label="Otto, holding the plan" className="-my-2 flex-none" />
+          <div className="flex flex-col gap-0.5">
+            <LoaderDots label="Waiting on your wallet" className="font-semibold text-[var(--ot-text)]" />
+            <p className="m-0 text-[12px] leading-[1.45] text-[var(--ot-text-2)]">Nothing is sent until you approve there.</p>
+          </div>
+        </div>
+      ) : null}
       <PlanStepList
         steps={steps}
         batched={batched}
@@ -408,11 +421,25 @@ export function SignPanel({ plan, move, open, txHash, recheck }: SignPanelProps)
         </Button>
         {gate.kind === 'ready' ? (
           <Button variant="primary" size="lg" fullWidth disabled={busy || !ready} onClick={() => void sign()}>
-            {phase.kind === 'signing' ? 'Check your wallet…' : 'Sign'}
+            {phase.kind === 'signing' ? (
+              <span className="inline-flex items-center gap-2">
+                <TentacleRing size={18} tone="current" />
+                Check your wallet
+              </span>
+            ) : (
+              'Sign'
+            )}
           </Button>
         ) : gate.kind === 'wrong_chain' ? (
           <Button variant="primary" size="lg" fullWidth disabled={busy} onClick={switchChain}>
-            {phase.kind === 'switching' ? 'Switching…' : `Switch to ${chainName(chain)}`}
+            {phase.kind === 'switching' ? (
+              <span className="inline-flex items-center gap-2">
+                <TentacleRing size={18} tone="current" />
+                Switching
+              </span>
+            ) : (
+              `Switch to ${chainName(chain)}`
+            )}
           </Button>
         ) : (
           <Button variant="primary" size="lg" fullWidth disabled={!ready} onClick={() => connectWallet({ suggestedAddress: getAddress(wanted) })}>
@@ -546,6 +573,21 @@ function PlanStepList({
             )
           })}
         </ol>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Otto after settlement: one ripple, then he keeps hopping. The ripple plays
+ * once because it marks a moment; the hop goes on because the moment is his.
+ */
+export function Settled() {
+  return (
+    <div className="relative flex h-[96px] w-[96px] items-end justify-center">
+      <span aria-hidden className="ot-settle-ripple absolute top-4 h-16 w-16 rounded-full bg-[var(--ot-navy-soft)]" />
+      <div className="ot-celebrate relative">
+        <Otto pose="confirmed" size={88} animated label="Otto, arms up" />
       </div>
     </div>
   )
