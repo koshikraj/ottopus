@@ -216,10 +216,19 @@ function Ground({ children, wide = false }: { children: ReactNode; wide?: boolea
         wide ? 'items-start' : 'items-start sm:items-center',
       )}
     >
-      <div aria-hidden className="ot-caustic" />
-      <div aria-hidden className="ot-caustic ot-caustic--b" />
-      <BubbleField pattern="canvas" />
-      <SeaLife creatures={GUTTER_LIFE} />
+      {/*
+        Clipped as one layer. The caustic sheets are the page's full size and
+        drift and swell as they wash, so unclipped they reached past the
+        bottom of the water by a few pixels that changed with the animation —
+        a strip of bare page that came and went. The portfolio's water clips
+        the same way.
+      */}
+      <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div className="ot-caustic" />
+        <div className="ot-caustic ot-caustic--b" />
+        <BubbleField pattern="canvas" />
+        <SeaLife creatures={GUTTER_LIFE} />
+      </div>
       <div className={cn('relative w-full', wide ? 'max-w-[440px] min-[1032px]:max-w-[1032px]' : 'max-w-[440px]')}>{children}</div>
     </main>
   )
