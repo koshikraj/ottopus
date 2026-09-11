@@ -13,7 +13,8 @@ import type { PlanSummary } from './store.js'
  * hash should bind, and a missing one must never make a plan unreadable.
  */
 export interface Visuals {
-  assets: Record<string, { symbol: string; name: string; iconUrl: string | null }>
+  /** `priceUsd` is today's, from whoever knew the asset; null when nobody prices it. */
+  assets: Record<string, { symbol: string; name: string; iconUrl: string | null; priceUsd: number | null }>
   chains: Record<string, ChainVisual>
   wallets: Record<string, { walletType: string; label: string | null }>
 }
@@ -45,6 +46,12 @@ function assetIdsOf(plan: Plan): string[] {
   if (plan.intent.kind === 'swap' || plan.intent.kind === 'bridge') {
     ids.add(plan.intent.from)
     ids.add(plan.intent.to)
+  }
+  // Everything the agent declared may leave. What arrives is only known
+  // once a simulation has run, and those ids are picked up below.
+  if (plan.intent.kind === 'custom') {
+    for (const c of plan.intent.expectedChanges) ids.add(c.asset)
+    for (const a of plan.intent.approvals) ids.add(a.asset)
   }
   for (const a of plan.humanPlan.assets ?? []) ids.add(a.id)
   // A simulation can name assets the intent never did — a swap's output, a
@@ -79,11 +86,11 @@ export async function visualsFor(
     assetIdsOf(plan).map(async (id) => {
       const row = portfolio?.assets.find((a) => a.assetId.toLowerCase() === id.toLowerCase())
       if (row) {
-        visuals.assets[id] = { symbol: row.asset.symbol, name: row.asset.name, iconUrl: row.asset.iconUrl }
+        visuals.assets[id] = { symbol: row.asset.symbol, name: row.asset.name, iconUrl: row.asset.iconUrl, priceUsd: row.price }
         return
       }
       const known = await tokens?.byAssetId(id)
-      if (known) visuals.assets[id] = { symbol: known.symbol, name: known.name, iconUrl: known.iconUrl }
+      if (known) visuals.assets[id] = { symbol: known.symbol, name: known.name, iconUrl: known.iconUrl, priceUsd: known.priceUsd }
     }),
   )
 

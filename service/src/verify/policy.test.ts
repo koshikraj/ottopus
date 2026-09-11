@@ -807,3 +807,208 @@ describe('native value a route declares', () => {
     expect(verdict.ok, JSON.stringify(!verdict.ok && verdict.reasons)).toBe(true)
   })
 })
+
+/**
+ * The custom tier. The agent authored the calls, so the declaration is what
+ * they are held to — and a simulation is required, not optional.
+ */
+describe('an agent-authored plan', () => {
+  const PM = '0x03a520b32c04bf3beef7beb72e919cf822ed34f1'
+  const GUESSED = '0x4444444444444444444444444444444444444444'
+  const WETH = '0x4200000000000000000000000000000000000006'
+  const CLAIM_ABI = [
+    { type: 'function', name: 'claimFees', inputs: [], outputs: [], stateMutability: 'nonpayable' },
+    { type: 'function', name: 'multicall', inputs: [{ name: 'data', type: 'bytes[]' }], outputs: [], stateMutability: 'payable' },
+    { type: 'function', name: 'exec', inputs: [{ name: 'payload', type: 'bytes' }], outputs: [], stateMutability: 'nonpayable' },
+  ] as const
+  const claimFees = encodeFunctionData({ abi: CLAIM_ABI, functionName: 'claimFees' })
+
+  /** USDC and the position manager are verified; GUESSED has code, no source, and a 4byte name. */
+  const custom: Lookups = {
+    ...lookups,
+    async getCode(c, address) {
+      return [PM, GUESSED].includes(address.toLowerCase()) ? '0x6080' : lookups.getCode(c, address)
+    },
+    async sourcify(c, address) {
+      if (address.toLowerCase() === PM) return { abi: CLAIM_ABI as never, name: 'NonfungiblePositionManager', match: 'exact_match' }
+      return lookups.sourcify(c, address)
+    },
+    async fourByte() {
+      return ['claim()']
+    },
+  }
+
+  const intent = (over: Partial<Extract<Intent, { kind: 'custom' }>> = {}): Intent => ({
+    kind: 'custom',
+    fromAccount: `${CHAIN}:${ALICE}`,
+    chainId: CHAIN,
+    summary: 'Approve 1 USDC to the position manager and claim fees',
+    expectedChanges: [{ asset: `${CHAIN}/erc20:${USDC}`, maxOut: '1000000' }],
+    approvals: [{ asset: `${CHAIN}/erc20:${USDC}`, spender: `${CHAIN}:${PM}`, amount: '1000000' }],
+    ...over,
+  })
+  const approve = (spender: string, amount: bigint) =>
+    encodeFunctionData({ abi: KNOWN_ABI, functionName: 'approve', args: [spender, amount] })
+  const honest = [call(USDC, approve(PM, 1_000_000n)), call(PM, claimFees)]
+  const traced = (changes: AssetDelta[] = [delta(`${CHAIN}/erc20:${USDC}`, '-1000000', 'USDC', 6)]) =>
+    ran({ tracedAssets: true, assetChanges: changes })
+
+  async function verifyCustom(i: Intent, calls: Call[], simulation?: Simulation | null) {
+    const decodedActions = await decodeCalls(calls, custom)
+    return verifyPlan({ intent: i, calls, decodedActions, ...(simulation !== undefined ? { simulation } : {}) })
+  }
+
+  it('passes when the bytes, the approval and the run all match the declaration', async () => {
+    expect(await verifyCustom(intent(), honest, traced())).toEqual({ ok: true, warnings: [] })
+  })
+
+  /** The vendor's own calls, forwarded verbatim. The LP API asks for exactly this. */
+  it('refuses the unlimited approval a vendor hands back', async () => {
+    const verdict = await verifyCustom(intent(), [call(USDC, approve(PM, maxUint256)), call(PM, claimFees)], traced())
+    expect(verdict.ok).toBe(false)
+    expect(verdict).toMatchObject({ reasons: expect.arrayContaining([expect.stringMatching(/unlimited approval/)]) })
+  })
+
+  it('holds the approval to the declared amount and the declared token', async () => {
+    const more = await verifyCustom(intent(), [call(USDC, approve(PM, 2_000_000n)), call(PM, claimFees)], traced())
+    expect(more).toMatchObject({ ok: false, reasons: [expect.stringMatching(/approves 2000000 .* declaration says 1000000/)] })
+    // Same spender, a token the declaration never named for it.
+    const other = await verifyCustom(intent(), [call(WETH, approve(PM, 1_000_000n)), call(PM, claimFees)], traced())
+    expect(other.ok).toBe(false)
+    expect(other).toMatchObject({ reasons: expect.arrayContaining([expect.stringMatching(/does not name for that token/)]) })
+  })
+
+  it('only cautions on an approval the declaration names but no call makes', async () => {
+    const verdict = await verifyCustom(intent(), [call(PM, claimFees)], traced([]))
+    expect(verdict.ok).toBe(true)
+    expect(verdict.warnings.map((w) => w.code)).toEqual(['declared_approval_absent'])
+  })
+
+  describe('what the simulation saw leave', () => {
+    it('is an upper bound: less than declared passes, more is inked', async () => {
+      const less = await verifyCustom(intent({ expectedChanges: [{ asset: `${CHAIN}/erc20:${USDC}`, maxOut: '5000000' }] }), honest, traced())
+      expect(less.ok).toBe(true)
+      const more = await verifyCustom(intent(), honest, traced([delta(`${CHAIN}/erc20:${USDC}`, '-5000000', 'USDC', 6)]))
+      expect(more).toMatchObject({ ok: false, reasons: [expect.stringMatching(/5000000 USDC leaving, above the 1000000/)] })
+    })
+
+    it('inks an asset leaving that the declaration never mentioned', async () => {
+      const changes = [delta(`${CHAIN}/erc20:${USDC}`, '-1000000', 'USDC', 6), delta(`${CHAIN}/erc20:${WETH}`, '-1', 'WETH', 18)]
+      const verdict = await verifyCustom(intent(), honest, traced(changes))
+      expect(verdict).toMatchObject({ ok: false, reasons: [expect.stringMatching(/WETH leaving, which the declaration does not mention/)] })
+    })
+
+    it('ignores what arrives — that side is not declared and not checked', async () => {
+      const changes = [delta(`${CHAIN}/erc20:${USDC}`, '-1000000', 'USDC', 6), delta(`${CHAIN}/erc20:${WETH}`, '+99', 'WETH', 18)]
+      expect(await verifyCustom(intent(), honest, traced(changes))).toEqual({ ok: true, warnings: [] })
+    })
+  })
+
+  describe('the simulation is required', () => {
+    it('inks a plan no simulation ran for', async () => {
+      const verdict = await verifyCustom(intent(), honest, null)
+      expect(verdict).toMatchObject({ ok: false, reasons: [expect.stringMatching(/no simulation ran/)] })
+    })
+
+    it('inks a run that never traced balances, even a successful one', async () => {
+      const verdict = await verifyCustom(intent(), honest, ran({ tracedAssets: false, assetChanges: [] }))
+      expect(verdict).toMatchObject({ ok: false, reasons: [expect.stringMatching(/did not trace balances/)] })
+    })
+
+    it('inks a run that reverted, saying which call', async () => {
+      const verdict = await verifyCustom(intent(), honest, ran({ success: false, failedCall: 2, revertReason: 'nothing to claim', tracedAssets: true, assetChanges: [] }))
+      expect(verdict).toMatchObject({ ok: false, reasons: [expect.stringMatching(/failed on call 2: nothing to claim/)] })
+    })
+  })
+
+  describe('the bytes must be readable from source', () => {
+    it('refuses a name that came from a selector database', async () => {
+      const guessed = intent({ expectedChanges: [], approvals: [] })
+      const verdict = await verifyCustom(guessed, [call(GUESSED, '0x4e71d92d')], traced([]))
+      expect(verdict.ok).toBe(false)
+      expect(verdict).toMatchObject({
+        reasons: expect.arrayContaining([expect.stringMatching(/no verified source/), expect.stringMatching(/selector database/)]),
+      })
+    })
+
+    it('refuses calldata sent to an address with no code', async () => {
+      const verdict = await verifyCustom(intent({ expectedChanges: [], approvals: [] }), [call(ALICE, claimFees)], traced([]))
+      expect(verdict).toMatchObject({ ok: false, reasons: [expect.stringMatching(/which has no code/)] })
+    })
+  })
+
+  /**
+   * Reviewed: a verified wrapper around an unlimited approval passed untouched.
+   * By decision it still passes — v3's own decrease arrives as a multicall —
+   * but the page is told what it could not read, and this test pins that the
+   * approval inside is indeed invisible, so nobody mistakes the caution for a check.
+   */
+  describe('calldata it cannot see into', () => {
+    it('cautions on a wrapper, and the approval inside it is not seen', async () => {
+      const hidden = encodeFunctionData({ abi: KNOWN_ABI, functionName: 'setApprovalForAll', args: [MALLORY, true] })
+      const wrapped = encodeFunctionData({ abi: CLAIM_ABI, functionName: 'multicall', args: [[hidden]] })
+      const verdict = await verifyCustom(intent({ expectedChanges: [], approvals: [] }), [call(PM, wrapped)], traced([]))
+      expect(verdict.ok).toBe(true)
+      expect(verdict.warnings).toEqual([
+        expect.objectContaining({ code: 'opaque_calldata', severity: 'caution', message: expect.stringMatching(/multicall.*would not be caught/) }),
+      ])
+    })
+
+    it('cautions on a non-empty bytes argument, and says nothing of an empty one', async () => {
+      const bare = intent({ expectedChanges: [], approvals: [] })
+      const loaded = await verifyCustom(bare, [call(PM, encodeFunctionData({ abi: CLAIM_ABI, functionName: 'exec', args: ['0x095ea7b3'] }))], traced([]))
+      expect(loaded.ok).toBe(true)
+      expect(loaded.warnings.map((w) => w.code)).toEqual(['opaque_calldata'])
+      const empty = await verifyCustom(bare, [call(PM, encodeFunctionData({ abi: CLAIM_ABI, functionName: 'exec', args: ['0x'] }))], traced([]))
+      expect(empty).toEqual({ ok: true, warnings: [] })
+    })
+  })
+
+  /** Reviewed: two increases at the declared amount each matched the declaration and left twice it. */
+  describe('an allowance is set, never grown', () => {
+    it('refuses increaseAllowance outright', async () => {
+      const grow = encodeFunctionData({ abi: KNOWN_ABI, functionName: 'increaseAllowance', args: [PM, 1_000_000n] })
+      const verdict = await verifyCustom(intent(), [call(USDC, grow), call(PM, claimFees)], traced())
+      expect(verdict).toMatchObject({ ok: false, reasons: expect.arrayContaining([expect.stringMatching(/increaseAllowance .* never adds to one/)]) })
+    })
+
+    it('refuses the same pair approved twice, even at the declared amount', async () => {
+      const twice = [call(USDC, approve(PM, 1_000_000n)), call(USDC, approve(PM, 1_000_000n)), call(PM, claimFees)]
+      const verdict = await verifyCustom(intent(), twice, traced())
+      expect(verdict).toMatchObject({ ok: false, reasons: [expect.stringMatching(/approved to .* twice/)] })
+    })
+
+    it('allows a revoke: approve to zero, declared as zero', async () => {
+      const revoke = intent({ expectedChanges: [], approvals: [{ asset: `${CHAIN}/erc20:${USDC}`, spender: `${CHAIN}:${PM}`, amount: '0' }] })
+      const verdict = await verifyCustom(revoke, [call(USDC, approve(PM, 0n))], traced([]))
+      expect(verdict).toEqual({ ok: true, warnings: [] })
+    })
+  })
+
+  /** Reviewed: empty calldata was labelled native and skipped the source check, contract or not. */
+  describe('value with no calldata', () => {
+    it('may go to a wallet, but a contract’s fallback still needs published source', async () => {
+      const paying = intent({ expectedChanges: [], approvals: [], nativeValue: '1000' })
+      expect((await verifyCustom(paying, [call(ALICE, '0x', '1000')], traced([]))).ok).toBe(true)
+      const toUnverified = await verifyCustom(paying, [call(ROUTER, '0x', '1000')], traced([]))
+      expect(toUnverified).toMatchObject({ ok: false, reasons: [expect.stringMatching(/sends value to .* no verified source; what its fallback does/)] })
+      expect((await verifyCustom(paying, [call(PM, '0x', '1000')], traced([]))).ok).toBe(true)
+    })
+  })
+
+  describe('native value', () => {
+    it('is a block when the declaration is silent, and passes when declared', async () => {
+      const paying = [call(PM, claimFees, '1000')]
+      const silent = await verifyCustom(intent({ expectedChanges: [], approvals: [] }), paying, traced([]))
+      expect(silent).toMatchObject({ ok: false, reasons: [expect.stringMatching(/1000 wei .* does not mention/)] })
+      const declared = await verifyCustom(intent({ expectedChanges: [], approvals: [], nativeValue: '1000' }), paying, traced([]))
+      expect(declared.ok).toBe(true)
+    })
+
+    it('spends the declaration once, not once per call', async () => {
+      const twice = [call(PM, claimFees, '1000'), call(PM, claimFees, '1000')]
+      const verdict = await verifyCustom(intent({ expectedChanges: [], approvals: [], nativeValue: '1000' }), twice, traced([]))
+      expect(verdict).toMatchObject({ ok: false, reasons: [expect.stringMatching(/above the 1000 the declaration allows/)] })
+    })
+  })
+})

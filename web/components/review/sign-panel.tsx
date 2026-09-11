@@ -4,14 +4,23 @@ import { useConnectWallet, useWallets } from '@privy-io/react-auth'
 import { useRouter } from 'next/navigation'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Otto } from '@/components/brand'
+import { LoaderDots, TentacleRing } from '@/components/motion'
 import { Button, Dialog } from '@/components/ui'
 import type { Plan, WebTransition } from '@/lib/api'
 import { addChainParams, chainName, evmIdOf, explorerTxUrl } from '@/lib/chains'
 import { getAddress } from 'viem'
+import { cn } from '@/lib/cn'
 import { addressOf, truncateAddress } from '@/lib/format'
-import type { Eip1193 } from '@/lib/simulate'
-import { approvals, chainOfPlan, standingApproval } from './model'
-import { BatchAccepted, SequentialNeedsConsent, UserRejected, sendPlanCalls, waitForReceipt } from './send-calls'
+import { approvals, chainOfPlan, type PlanStep, planSteps, standingApproval } from './model'
+import {
+  BatchAccepted,
+  type Batching,
+  SequentialNeedsConsent,
+  UserRejected,
+  probeBatching,
+  sendPlanCalls,
+  waitForReceipt,
+} from './send-calls'
 import { gateFor } from './wallet-gate'
 
 /**
@@ -30,12 +39,13 @@ export interface SignPanelProps {
   /** The hash the service holds for a submitted plan, so a reopened page resumes the watch. */
   txHash?: string | null | undefined
   /**
-   * Run the browser's simulation again. Called immediately before the wallet
-   * is asked to sign: the plan was built minutes ago and the last thing a
-   * person should do is send a transaction the chain has already started
-   * refusing.
+   * Re-run the calls immediately before the wallet is asked to sign: the plan
+   * was built minutes ago and the last thing a person should do is send a
+   * transaction the chain has already started refusing.
+   *
+   * Untraced and read straight from the chain, never through the wallet.
    */
-  resimulate?: ((provider?: Eip1193 | null) => Promise<{ success: boolean; revertReason?: string; failedCall?: number } | null>) | undefined
+  recheck?: (() => Promise<{ success: boolean; revertReason?: string; failedCall?: number } | null>) | undefined
 }
 
 type Phase =
@@ -48,7 +58,7 @@ type Phase =
 
 const isHash = (v: unknown): v is `0x${string}` => typeof v === 'string' && /^0x[0-9a-f]{64}$/i.test(v)
 
-export function SignPanel({ plan, move, open, txHash, resimulate }: SignPanelProps) {
+export function SignPanel({ plan, move, open, txHash, recheck }: SignPanelProps) {
   const router = useRouter()
   const { wallets, ready } = useWallets()
   const { connectWallet } = useConnectWallet()
@@ -75,6 +85,17 @@ export function SignPanel({ plan, move, open, txHash, resimulate }: SignPanelPro
   const consented = useRef(false)
   const [confirmCancel, setConfirmCancel] = useState(false)
   const [cancelling, setCancelling] = useState(false)
+  /**
+   * What the wallet says about batching, for the label only.
+   *
+   * Never consulted when sending: `sendPlanCalls` offers the batch whatever
+   * this says. "unknown" is a real answer and stays silent rather than
+   * guessing, because a wallet that cannot be asked is not a wallet that
+   * cannot batch.
+   */
+  const [batching, setBatching] = useState<Batching>('unknown')
+  /** Which call the wallet is on, and how many are behind it. */
+  const [progress, setProgress] = useState<{ signing: number | null; done: number }>({ signing: null, done: 0 })
   const wroteAwaiting = useRef(false)
 
   const chain = chainOfPlan(plan)
@@ -88,6 +109,8 @@ export function SignPanel({ plan, move, open, txHash, resimulate }: SignPanelPro
   // Memoised: called bare in the body, it defeated the React Compiler's
   // memoisation of every callback below it.
   const standing = useMemo(() => standingApproval(plan), [plan])
+  const steps = useMemo(() => planSteps(plan), [plan])
+  const batched = batching === 'yes'
   const signerName = plan.resolution.account.label
     ? `${plan.resolution.account.label} (${truncateAddress(wanted)})`
     : truncateAddress(wanted)
@@ -102,6 +125,27 @@ export function SignPanel({ plan, move, open, txHash, resimulate }: SignPanelPro
     })
   }, [open, gate.kind, plan.status, move])
 
+  /**
+   * Ask once the right wallet is connected, and only when there is more than
+   * one call — with a single call there is nothing to batch and nothing worth
+   * saying about it.
+   */
+  useEffect(() => {
+    if (!wallet || gate.kind !== 'ready' || steps.length < 2) return
+    let live = true
+    void (async () => {
+      try {
+        const answer = await probeBatching(await wallet.getEthereumProvider(), wanted, chain)
+        if (live) setBatching(answer)
+      } catch {
+        if (live) setBatching('unknown')
+      }
+    })()
+    return () => {
+      live = false
+    }
+  }, [wallet, gate.kind, wanted, chain, steps.length])
+
   // Resume the receipt watch for a submitted plan through the named wallet's
   // provider, when that wallet is connected. Without it the page still shows
   // the hash and the explorer; the job (#40) closes the loop server-side.
@@ -114,10 +158,10 @@ export function SignPanel({ plan, move, open, txHash, resimulate }: SignPanelPro
         const provider = await wallet.getEthereumProvider()
         const outcome = await waitForReceipt(provider, hash)
         if (outcome === 'success') {
-          await move({ status: 'confirmed' })
+          await move({ status: 'confirmed', detail: { txHash: hash } })
           setPhase({ kind: 'confirmed', txHash: hash })
         } else {
-          await move({ status: 'failed', detail: { reason: 'reverted' } })
+          await move({ status: 'failed', detail: { reason: 'reverted', txHash: hash } })
           setPhase({ kind: 'failed', txHash: hash, reason: 'The transaction reverted on chain.' })
         }
       } catch {
@@ -158,6 +202,7 @@ export function SignPanel({ plan, move, open, txHash, resimulate }: SignPanelPro
     if (!wallet || gate.kind !== 'ready' || plan.outcome.type !== 'calls') return
     setProblem(null)
     setAskConsent(false)
+    setProgress({ signing: null, done: 0 })
     setPhase({ kind: 'signing' })
     let txHash: `0x${string}` | null = null
     try {
@@ -165,8 +210,8 @@ export function SignPanel({ plan, move, open, txHash, resimulate }: SignPanelPro
       // The last check before the wallet opens. A run that cannot answer says
       // nothing and does not stop anybody; one that reverts does, because the
       // alternative is a signature that burns a fee for nothing.
-      if (resimulate) {
-        const fresh = await resimulate(provider as Eip1193)
+      if (recheck) {
+        const fresh = await recheck()
         if (fresh && !fresh.success) {
           setPhase({ kind: 'idle' })
           const which = fresh.failedCall ? `Call ${fresh.failedCall}` : 'This batch'
@@ -185,6 +230,10 @@ export function SignPanel({ plan, move, open, txHash, resimulate }: SignPanelPro
         // Nothing could be left standing, or the person has been shown what
         // would be and said yes.
         sequentialIsSafe: plan.outcome.calls.length === 1 || approvals(plan).length === 0 || consented.current,
+        onStep: (index, phase) =>
+          setProgress((held) =>
+            phase === 'signing' ? { ...held, signing: index } : { signing: null, done: index + 1 },
+          ),
       })
       txHash = sent.txHash
       await move({ status: 'submitted', detail: { txHash } })
@@ -217,7 +266,7 @@ export function SignPanel({ plan, move, open, txHash, resimulate }: SignPanelPro
       setPhase({ kind: 'idle' })
       setProblem((err as Error).message || 'The wallet did not send it.')
     }
-  }, [wallet, gate.kind, plan, wanted, chain, move, resimulate])
+  }, [wallet, gate.kind, plan, wanted, chain, move, recheck])
 
   const cancel = useCallback(async () => {
     setCancelling(true)
@@ -236,12 +285,7 @@ export function SignPanel({ plan, move, open, txHash, resimulate }: SignPanelPro
   if (phase.kind === 'confirmed') {
     return (
       <div className="flex flex-col items-center gap-2.5 text-center">
-        <div className="relative flex h-[88px] w-[88px] items-center justify-center">
-          <span aria-hidden className="ot-settle-ripple absolute h-16 w-16 rounded-full bg-[var(--ot-navy-soft)]" />
-          <div className="relative">
-            <Otto pose="confirmed" size={88} label="Otto, arms up" />
-          </div>
-        </div>
+        <Settled />
         <span className="font-[family-name:var(--ot-font-display)] text-[19px] font-bold">Signed and settled</span>
         <p className="m-0 text-[12.5px] leading-[1.45] text-[var(--ot-text-2)]">
           {plan.humanPlan.summary}. Confirmed on {chainName(chain)}.
@@ -263,13 +307,16 @@ export function SignPanel({ plan, move, open, txHash, resimulate }: SignPanelPro
   if (phase.kind === 'submitted') {
     return (
       <div className="flex flex-col gap-2 rounded-[10px] bg-[var(--ot-card)] px-3 py-[11px]">
-        <div className="flex items-center gap-2">
-          <span aria-hidden className="ot-ring h-4 w-4 flex-none rounded-full border-2 border-[var(--ot-plan-border)] border-t-[var(--ot-plan)]" />
-          <span className="text-[13.5px] font-semibold">Pending confirmation</span>
+        {/* Otto taps the cube: he is watching the chain, and the wait is his, not a bar's. */}
+        <div className="flex items-center gap-3">
+          <Otto pose="tapping" size={56} animated label="Otto, watching the chain" className="-my-2 flex-none" />
+          <div className="flex flex-col gap-0.5">
+            <LoaderDots label="Pending confirmation" className="font-semibold text-[var(--ot-text)]" />
+            <p className="m-0 text-[12.5px] leading-[1.45] text-[var(--ot-text-2)]">
+              Your wallet sent it. Close this page if you like — the transaction finishes either way.
+            </p>
+          </div>
         </div>
-        <p className="m-0 text-[12.5px] leading-[1.45] text-[var(--ot-text-2)]">
-          Your wallet sent it. Close this page if you like — the transaction finishes either way.
-        </p>
         {explorer(phase.txHash) ? (
           <a href={explorer(phase.txHash)!} target="_blank" rel="noreferrer" className="text-[12px] text-[var(--ot-plan-text)]">
             Follow it on the explorer
@@ -300,18 +347,27 @@ export function SignPanel({ plan, move, open, txHash, resimulate }: SignPanelPro
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex flex-col gap-1.5 rounded-[10px] bg-[var(--ot-card)] px-3 py-[11px]">
-        <span className="text-[11.5px] text-[var(--ot-text-3)]">One signature in your wallet</span>
-        <div className="flex items-center gap-2">
-          <span
-            aria-hidden
-            className="flex h-[19px] w-[19px] flex-none items-center justify-center rounded-full bg-[var(--ot-surface-3)] text-[10.5px] font-semibold text-[var(--ot-text-3)]"
-          >
-            1
-          </span>
-          <span className="text-[13px] text-[var(--ot-text-2)]">{plan.humanPlan.steps[0] ?? plan.humanPlan.summary}</span>
+      {/*
+        The wait is the screen here, which is what earns it Otto rather than
+        geometry alone. The step list below narrates the handshake; the ring
+        in the button is the design's inline wait.
+      */}
+      {phase.kind === 'signing' ? (
+        <div className="flex items-center gap-3 rounded-[10px] bg-[var(--ot-card)] px-3 py-2">
+          <Otto pose="plan-ready" size={56} animated label="Otto, holding the plan" className="-my-2 flex-none" />
+          <div className="flex flex-col gap-0.5">
+            <LoaderDots label="Waiting on your wallet" className="font-semibold text-[var(--ot-text)]" />
+            <p className="m-0 text-[12px] leading-[1.45] text-[var(--ot-text-2)]">Nothing is sent until you approve there.</p>
+          </div>
         </div>
-      </div>
+      ) : null}
+      <PlanStepList
+        steps={steps}
+        batched={batched}
+        known={batching !== 'unknown'}
+        signing={phase.kind === 'signing'}
+        progress={progress}
+      />
 
       {problem ? (
         <p role="alert" className="m-0 rounded-[8px] bg-[var(--ot-warn-bg)] px-3 py-2 text-[12.5px] text-[var(--ot-warn-text)]">
@@ -319,6 +375,12 @@ export function SignPanel({ plan, move, open, txHash, resimulate }: SignPanelPro
         </p>
       ) : null}
 
+      {/*
+        What signing will actually involve, once the wallet is connected and
+        there is more than one step. Silent on "unknown": a wallet that could
+        not be asked is not a wallet that cannot batch, and the send path
+        tries regardless.
+      */}
       {/*
         The wallet will not batch. Say exactly what stopping halfway would
         leave behind, then let the person decide — an allowance for a named
@@ -359,11 +421,25 @@ export function SignPanel({ plan, move, open, txHash, resimulate }: SignPanelPro
         </Button>
         {gate.kind === 'ready' ? (
           <Button variant="primary" size="lg" fullWidth disabled={busy || !ready} onClick={() => void sign()}>
-            {phase.kind === 'signing' ? 'Check your wallet…' : 'Sign'}
+            {phase.kind === 'signing' ? (
+              <span className="inline-flex items-center gap-2">
+                <TentacleRing size={18} tone="current" />
+                Check your wallet
+              </span>
+            ) : (
+              'Sign'
+            )}
           </Button>
         ) : gate.kind === 'wrong_chain' ? (
           <Button variant="primary" size="lg" fullWidth disabled={busy} onClick={switchChain}>
-            {phase.kind === 'switching' ? 'Switching…' : `Switch to ${chainName(chain)}`}
+            {phase.kind === 'switching' ? (
+              <span className="inline-flex items-center gap-2">
+                <TentacleRing size={18} tone="current" />
+                Switching
+              </span>
+            ) : (
+              `Switch to ${chainName(chain)}`
+            )}
           </Button>
         ) : (
           <Button variant="primary" size="lg" fullWidth disabled={!ready} onClick={() => connectWallet({ suggestedAddress: getAddress(wanted) })}>
@@ -412,5 +488,117 @@ export function SignPanel({ plan, move, open, txHash, resimulate }: SignPanelPro
         }
       />
     </div>
+  )
+}
+
+
+/**
+ * Every call the wallet will be asked for, in order.
+ *
+ * The one thing this has to get right is honesty about how many signatures
+ * are coming. A batched plan is one signature over the whole list, so the
+ * rows are bracketed together and share a state; a sequential one is a
+ * signature each, so the rows are numbered and only the current one is lit.
+ *
+ * "unknown" gets the plain numbered list with no claim either way, because a
+ * wallet that could not be asked is not a wallet that cannot batch.
+ */
+function PlanStepList({
+  steps,
+  batched,
+  known,
+  signing,
+  progress,
+}: {
+  steps: readonly PlanStep[]
+  batched: boolean
+  known: boolean
+  signing: boolean
+  progress: { signing: number | null; done: number }
+}) {
+  if (steps.length === 0) return null
+  const many = steps.length > 1
+  const heading = !many
+    ? 'One signature in your wallet'
+    : batched
+      ? `${steps.length} steps, one signature`
+      : known
+        ? `${steps.length} steps, a signature each`
+        : `${steps.length} steps in your wallet`
+
+  return (
+    <div className="flex flex-col gap-2 rounded-[10px] bg-[var(--ot-card)] px-3 py-[11px]">
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="text-[11.5px] text-[var(--ot-text-3)]">{heading}</span>
+        {many && batched ? (
+          <span className="flex items-center gap-1 text-[10.5px] font-semibold text-[var(--ot-ok-text)]">
+            <BatchMark />
+            batched
+          </span>
+        ) : null}
+      </div>
+
+      <div className={cn('flex gap-2.5', many && batched && 'ot-batch-group')}>
+        {/* One brace for a batch: the rows are one action to the wallet. */}
+        {many && batched ? <span aria-hidden className="ot-batch-brace mt-0.5 mb-0.5 w-[3px] flex-none rounded-full" /> : null}
+        <ol className="m-0 flex flex-1 list-none flex-col gap-1.5 p-0">
+          {steps.map((step, i) => {
+            const done = batched ? false : i < progress.done
+            const active = batched ? signing : signing && progress.signing === i
+            return (
+              <li key={step.index} className="flex items-center gap-2">
+                <span
+                  aria-hidden
+                  className={cn(
+                    'flex h-[19px] w-[19px] flex-none items-center justify-center rounded-full text-[10.5px] font-semibold transition-colors',
+                    done
+                      ? 'bg-[var(--ot-ok-bg)] text-[var(--ot-ok-text)]'
+                      : active
+                        ? 'bg-[var(--ot-plan)] text-[var(--ot-on-state)]'
+                        : 'bg-[var(--ot-surface-3)] text-[var(--ot-text-3)]',
+                  )}
+                >
+                  {done ? '✓' : batched ? '•' : step.index}
+                </span>
+                <span className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-1.5">
+                  <span className={cn('text-[13px]', active ? 'font-semibold text-[var(--ot-text)]' : 'text-[var(--ot-text-2)]')}>
+                    {step.label}
+                  </span>
+                  {step.detail ? <span className="text-[11px] text-[var(--ot-text-3)]">{step.detail}</span> : null}
+                </span>
+                {active && !batched ? (
+                  <span className="flex-none text-[10.5px] font-medium text-[var(--ot-plan-text)]">in your wallet</span>
+                ) : null}
+              </li>
+            )
+          })}
+        </ol>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Otto after settlement: one ripple, then he keeps hopping. The ripple plays
+ * once because it marks a moment; the hop goes on because the moment is his.
+ */
+export function Settled() {
+  return (
+    <div className="relative flex h-[96px] w-[96px] items-end justify-center">
+      <span aria-hidden className="ot-settle-ripple absolute top-4 h-16 w-16 rounded-full bg-[var(--ot-navy-soft)]" />
+      <div className="ot-celebrate relative">
+        <Otto pose="confirmed" size={88} animated label="Otto, arms up" />
+      </div>
+    </div>
+  )
+}
+
+/** Two shapes closing into one. Static: this page holds still. */
+function BatchMark() {
+  return (
+    <svg aria-hidden viewBox="0 0 12 12" className="h-3 w-3 flex-none" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round">
+      <rect x="1.2" y="1.3" width="9.6" height="9.4" rx="2.6" />
+      <path d="M3.9 6h4.2M6 3.9v4.2" strokeLinecap="round" strokeWidth="1.2" opacity="0.6" />
+    </svg>
   )
 }

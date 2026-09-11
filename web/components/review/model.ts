@@ -127,7 +127,45 @@ export function assetChanges(plan: Plan, live?: Simulation | null): AssetChange[
     }
     return rows
   }
+
+  /**
+   * An agent-crafted plan, read off the declaration when no simulation has
+   * been observed. Each row is a ceiling, not a figure — the agent promised
+   * no more than this would leave — and the wording says so, because a page
+   * that printed a bound as an amount would be the declaration overclaiming.
+   */
+  if (plan.intent.kind === 'custom') {
+    const rows: AssetChange[] = []
+    for (const change of plan.intent.expectedChanges) {
+      const words = assetWords(plan, change.asset)
+      if (!words) continue
+      rows.push({
+        direction: 'out',
+        amount: formatAmount(change.maxOut, words.decimals),
+        symbol: words.symbol,
+        where: `at most, leaves ${holder}`,
+        assetId: change.asset,
+      })
+    }
+    return rows
+  }
   return []
+}
+
+/**
+ * "≈ $1,234.56" for a formatted amount at today's price, or null when there
+ * is no price or the amount is dust the formatter already rounded away. An
+ * estimate beside a figure that must never round — hence the ≈, and hence
+ * it is never the number the person signs.
+ */
+export function approxUsd(amount: string, priceUsd: number | null | undefined): string | null {
+  if (priceUsd === null || priceUsd === undefined || !(priceUsd > 0)) return null
+  if (amount.startsWith('<')) return null
+  const value = Number(amount.replace(/,/g, ''))
+  if (!Number.isFinite(value)) return null
+  const usd = value * priceUsd
+  if (usd < 0.01) return '< $0.01'
+  return `≈ $${usd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
 /** The CAIP-2 chain an asset id names. */
@@ -149,18 +187,21 @@ function holderOf(plan: Plan): string {
  * the reader. "request" is the intent, which is a promise rather than an
  * observation.
  */
-export type ChangeSource = 'live' | 'stored' | 'request'
+export type ChangeSource = 'live' | 'stored' | 'request' | 'declared'
 
 export function changeSource(plan: Plan, live?: Simulation | null): ChangeSource {
   if ((live?.assetChanges.length ?? 0) > 0) return 'live'
   if ((plan.simulation?.assetChanges.length ?? 0) > 0) return 'stored'
-  return 'request'
+  // An agent's declaration is a promise about the request, not the request
+  // itself, and the page should not let the two read the same.
+  return plan.intent.kind === 'custom' ? 'declared' : 'request'
 }
 
 export const SOURCE_LABEL: Readonly<Record<ChangeSource, string>> = {
   live: 'simulated just now',
   stored: 'simulated when the plan was built',
   request: 'from the request',
+  declared: 'declared by the agent, as ceilings',
 }
 
 function observedRow(delta: AssetDelta, holder: string): AssetChange {
@@ -261,8 +302,7 @@ export interface StandingApproval {
 export function standingApproval(plan: Plan): StandingApproval | null {
   const grant = approvals(plan)[0]
   if (!grant) return null
-  const spent = sourceAssetIdOf(plan)
-  const words = spent === null ? null : assetWords(plan, spent)
+  const words = approvalWords(plan, grant)
   return {
     spender: grant.spender,
     amount: grant.unlimited ? 'unlimited' : words ? formatAmount(grant.amount, words.decimals) : grant.amount,
@@ -275,19 +315,83 @@ export function standingApproval(plan: Plan): StandingApproval | null {
 export function sourceAssetIdOf(plan: Plan): string | null {
   if (plan.intent.kind === 'transfer') return plan.intent.asset
   if (plan.intent.kind === 'swap' || plan.intent.kind === 'bridge') return plan.intent.from
+  // A custom plan may spend several; the first declared is the one to lead with.
+  if (plan.intent.kind === 'custom') return plan.intent.expectedChanges[0]?.asset ?? null
   return null
 }
 
-/** The approvals a plan carries, for the callout. */
-export function approvals(plan: Plan): { spender: string; amount: string; unlimited: boolean }[] {
+export interface Approval {
+  spender: string
+  amount: string
+  unlimited: boolean
+  /** The token being approved — the call's target — as a CAIP-19 id. */
+  asset: string
+  /** What the decoder called the spender, when it is one of the plan's own targets. */
+  spenderName: string | null
+}
+
+/** The approvals a plan carries, for the heads-up. */
+export function approvals(plan: Plan): Approval[] {
+  const chain = chainOfPlan(plan)
   return plan.decodedActions.flatMap((a) =>
-    a.approval ? [{ spender: a.approval.spender, amount: a.approval.amount, unlimited: a.approval.amount === 'unlimited' }] : [],
+    a.approval
+      ? [
+          {
+            spender: a.approval.spender,
+            amount: a.approval.amount,
+            unlimited: a.approval.amount === 'unlimited',
+            asset: `${chain}/erc20:${addressOf(a.target).toLowerCase()}`,
+            spenderName:
+              plan.decodedActions.find((b) => addressOf(b.target).toLowerCase() === addressOf(a.approval!.spender).toLowerCase())
+                ?.contractName ?? null,
+          },
+        ]
+      : [],
   )
+}
+
+/**
+ * The words for an approved token. The token is the call's target, which on
+ * a swap or a custom plan is not necessarily the asset the plan spends — so
+ * the target is asked first and the spent asset is only the fallback.
+ */
+export function approvalWords(plan: Plan, grant: Approval): AssetWords | null {
+  const byTarget = assetWords(plan, grant.asset)
+  if (byTarget) return byTarget
+  const spent = sourceAssetIdOf(plan)
+  return spent === null ? null : assetWords(plan, spent)
+}
+
+/** "unlimited", "1,000 USDC", or the raw figure when nothing names it. */
+export function approvalAmount(plan: Plan, grant: Approval): string {
+  if (grant.unlimited) return 'unlimited'
+  const words = approvalWords(plan, grant)
+  return words ? `${formatAmount(grant.amount, words.decimals)} ${words.symbol}` : grant.amount
 }
 
 /** Warnings worth a banner: anything above info. */
 export function bannerWarnings(plan: Plan): PlanWarning[] {
   return plan.humanPlan.warnings.filter((w) => w.severity !== 'info')
+}
+
+/**
+ * Everything a person should read before signing, counted, and how bad the
+ * worst of it is. The card says the count and where to look; the heads-up
+ * panel says the rest.
+ */
+export interface HeadsUp {
+  grants: Approval[]
+  warnings: PlanWarning[]
+  count: number
+  worst: 'caution' | 'block' | null
+}
+
+export function headsUp(plan: Plan): HeadsUp {
+  const grants = approvals(plan)
+  const warnings = bannerWarnings(plan)
+  const count = grants.length + warnings.length
+  const block = grants.some((g) => g.unlimited) || warnings.some((w) => w.severity === 'block')
+  return { grants, warnings, count, worst: count === 0 ? null : block ? 'block' : 'caution' }
 }
 
 export interface DecodedRow {
@@ -357,8 +461,104 @@ export function keyFacts(plan: Plan): Fact[] {
   } else {
     rows.push({ label: 'Network fee', value: 'Shown by your wallet' })
   }
-  if (plan.intent.kind === 'transfer' && plan.intent.note) {
+  if ((plan.intent.kind === 'transfer' || plan.intent.kind === 'custom') && plan.intent.note) {
     rows.push({ label: 'Note', value: plan.intent.note })
   }
   return rows
+}
+
+/**
+ * What the wallet will be asked to do, one row per call.
+ *
+ * The panel used to say "One signature in your wallet" and draw a single
+ * numbered row, whatever the plan held — so a swap's approval was invisible
+ * until the wallet opened twice. A plan's calls are the steps, and a person
+ * about to sign should be able to count them.
+ */
+export interface PlanStep {
+  /** 1-based, as a person counts. */
+  index: number
+  label: string
+  /** The spender, the recipient, the contract. Shown small, beside the label. */
+  detail?: string
+}
+
+/**
+ * Prefixes this page writes into `humanPlan.steps` itself, so the route's own
+ * words can be told apart from the sentences added around them.
+ *
+ * Reading our own format is the weak part of this: the route's hops would be
+ * better as their own field on `humanPlan`, the way `assets` is. Sniffing
+ * costs nothing and works for every plan already stored, which a new field
+ * would not.
+ */
+const ADDED_STEP = /^(At least |Note from the request:|[a-z]+ estimates |[a-z]+ does not estimate )/
+
+export function planSteps(plan: Plan): PlanStep[] {
+  if (plan.outcome.type !== 'calls') return []
+  const calls = plan.outcome.calls
+  const routeWords = plan.humanPlan.steps.filter((step) => !ADDED_STEP.test(step))
+
+  return calls.map((call, i) => {
+    const action = plan.decodedActions[i]
+    const index = i + 1
+
+    if (action?.approval) {
+      const spent = sourceAssetIdOf(plan)
+      const words = spent === null ? null : assetWords(plan, spent)
+      const amount =
+        action.approval.amount === 'unlimited'
+          ? 'unlimited'
+          : words
+            ? `${formatAmount(action.approval.amount, words.decimals)} ${words.symbol}`
+            : action.approval.amount
+      return {
+        index,
+        label: `Approve ${amount}`,
+        detail: `for ${truncateAddress(addressOf(action.approval.spender))}`,
+      }
+    }
+
+    // A move we can read is described by what it does, not by its signature.
+    const moved = readableMove(plan, call, action)
+    if (moved) return { index, ...moved }
+
+    // The last call is the one the route's words describe: one call executes
+    // the whole route, however many hops the provider listed.
+    if (i === calls.length - 1 && routeWords.length > 0) {
+      return { index, label: routeWords.join(', then ') }
+    }
+    return {
+      index,
+      label: action?.function === 'unknown' || !action ? 'A call this page could not read' : action.function,
+      detail: `on ${truncateAddress(addressOf(call.to))}`,
+    }
+  })
+}
+
+/**
+ * A transfer, in words, when the decoder could read it.
+ *
+ * Printing `transfer(address,uint256)` at somebody about to sign is a worse
+ * answer than the page already has: the arguments are right there, and being
+ * able to say what a call does is the whole point of decoding it.
+ */
+function readableMove(
+  plan: Plan,
+  call: { to: string; value: string },
+  action: DecodedAction | undefined,
+): { label: string; detail?: string } | null {
+  const spent = sourceAssetIdOf(plan)
+  const words = spent === null ? null : assetWords(plan, spent)
+
+  if (action?.source === 'native' && call.value !== '0') {
+    const amount = words ? `${formatAmount(call.value, words.decimals)} ${words.symbol}` : `${call.value} wei`
+    return { label: `Send ${amount}`, detail: `to ${truncateAddress(addressOf(call.to))}` }
+  }
+  if (action?.function !== 'transfer(address,uint256)') return null
+  const to = action.args.find((a) => a.type === 'address')?.value
+  const raw = action.args.find((a) => a.type.startsWith('uint'))?.value
+  if (!to || !raw) return null
+  const amount = words ? `${formatAmount(raw, words.decimals)} ${words.symbol}` : raw
+  return { label: `Send ${amount}`, detail: `to ${truncateAddress(to)}` }
 }

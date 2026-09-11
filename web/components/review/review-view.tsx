@@ -4,23 +4,26 @@ import { useRouter } from 'next/navigation'
 import { useEffect, useState, type ReactNode } from 'react'
 import { RequireSession, usePrivyAvailable } from '@/components/auth'
 import { Otto } from '@/components/brand'
-import { StillnessProvider } from '@/components/motion'
+import { BubbleField, SeaLife, type SeaCreature } from '@/components/motion'
 import { Button, Callout, StatusChip } from '@/components/ui'
 import type { Plan, PlanStatusName } from '@/lib/api'
 import { cn } from '@/lib/cn'
+import { explorerTxUrl } from '@/lib/chains'
 import { decoderUrl } from '@/lib/simulators'
 import { AdvancedPanel } from './advanced-panel'
+import { HeadsUpPanel } from './heads-up-panel'
 import { canSign, chainOfPlan, countdown, effectiveStatus } from './model'
 import { ReviewCard } from './review-card'
 import { AdvancedSkeleton, ReviewSkeleton } from './review-skeleton'
-import { SignPanel } from './sign-panel'
+import { Settled, SignPanel } from './sign-panel'
 import { useReview } from './use-review'
 import { useSimulation } from './use-simulation'
 
 /**
  * P4. The link is usually opened on a phone from a chat, to decide one thing.
- * No ambient motion on this route — the water is held — and no nav: the card
- * is the page.
+ * No nav: the card is the page. It stands on the same water as the portfolio,
+ * and the water stays in the gutters — the card is opaque and nothing ambient
+ * ever passes behind an amount.
  *
  * Every dead link is one state. The service answers tampered, expired,
  * superseded and someone-else's with the same 404, and this page does not
@@ -51,7 +54,11 @@ function Review({ token }: { token: string }) {
   // this out: the SLIP-44 table lives in core, and a guess would label BNB as
   // ETH on the row the browser's own simulation produces.
   const native = chainId ? (read?.visuals?.chains[chainId] ?? null) : null
-  const simulation = useSimulation(plan, chainId, native)
+  // Only while a signature is still possible. A settled plan re-run against
+  // today's chain says "transaction too old" about a thing that already
+  // happened, which is not a finding, just a stale question.
+  const signable = plan ? canSign(effectiveStatus(plan, now)) : false
+  const simulation = useSimulation(signable ? plan : null, chainId, native)
 
   if (state.status === 'loading') {
     // `wide` so the loader stands exactly where the card will: a skeleton that
@@ -59,9 +66,10 @@ function Review({ token }: { token: string }) {
     // jump the moment the plan lands.
     return (
       <Ground wide>
-        <div className="relative mx-auto w-full max-w-[440px]">
+        <div className={WIDE_GRID}>
+          <div className={MIRROR} />
           <ReviewSkeleton />
-          <aside className="absolute top-0 left-full ml-4 hidden w-[280px] min-[1032px]:block">
+          <aside className="hidden min-[1032px]:block">
             <AdvancedSkeleton />
           </aside>
         </div>
@@ -102,22 +110,10 @@ function Review({ token }: { token: string }) {
   const live = { kind: simulation.state.kind, run: simulation.run, again: () => void simulation.again() }
   const panelProps = { plan, live, decoderUrl: decoderUrl(plan) }
 
-  /**
-   * The card stays centred in the viewport and the panel hangs off its right
-   * edge, rather than the pair being centred together.
-   *
-   * The card is the page. Centring the two as a block would slide the thing
-   * everybody reads off to the left to make room for the thing most people
-   * never open, and the page would appear to move sideways the moment the
-   * panel had something to say. Absolute placement keeps the card exactly
-   * where it is at every width.
-   *
-   * The breakpoint is the arithmetic, not a guess: 440 for the card plus 16
-   * of gap plus 280 of panel, doubled around the centre, is 1032.
-   */
   return (
     <Ground wide>
-      <div className="relative mx-auto w-full max-w-[440px]">
+      <div className={WIDE_GRID}>
+        <div className={MIRROR} />
         <div className="w-full min-w-0">
           <ReviewCard
             plan={plan}
@@ -140,21 +136,44 @@ function Review({ token }: { token: string }) {
             }
           >
             {canSign(status) ? (
-              <SignPanel plan={plan} move={move} open resimulate={simulation.again} />
+              <SignPanel plan={plan} move={move} open recheck={simulation.recheck} />
             ) : status === 'submitted' ? (
               <SignPanel plan={plan} move={move} open={false} txHash={statusDetail?.txHash ?? null} />
             ) : (
-              <Ended status={status} />
+              <Ended status={status} chain={chainId} txHash={statusDetail?.txHash ?? null} />
             )}
           </ReviewCard>
+          {/* Under the card, and so under its folded advanced review, on a phone. */}
+          <HeadsUpPanel plan={plan} className="mx-4 mt-4 sm:mx-0 min-[1032px]:hidden" />
         </div>
-        <aside className="absolute top-0 left-full ml-4 hidden w-[280px] min-[1032px]:block">
+        <aside className="hidden flex-col gap-4 min-[1032px]:flex">
           <AdvancedPanel {...panelProps} />
+          <HeadsUpPanel plan={plan} />
         </aside>
       </div>
     </Ground>
   )
 }
+
+/**
+ * The card stays centred in the viewport and the panels hang off its right
+ * edge, rather than the three being centred together.
+ *
+ * The card is the page. Centring card and panels as a block would slide the
+ * thing everybody reads off to the left to make room for the thing most
+ * people never open, and the page would appear to move sideways the moment a
+ * panel had something to say. So the grid has a third, empty column the width
+ * of the panels on the card's other side, and the card sits in the middle of
+ * it at every width. In-flow rather than absolutely placed, because a panel
+ * taller than the card has to lengthen the page — placed absolutely it hung
+ * out of the bottom of the water into bare page.
+ *
+ * The breakpoint is the arithmetic, not a guess: 440 for the card plus 16 of
+ * gap plus 280 of panel, doubled around the centre, is 1032.
+ */
+const WIDE_GRID =
+  'relative mx-auto w-full max-w-[440px] min-[1032px]:grid min-[1032px]:max-w-[1032px] min-[1032px]:grid-cols-[280px_440px_280px] min-[1032px]:items-start min-[1032px]:gap-4'
+const MIRROR = 'hidden min-[1032px]:block'
 
 /** A second hand for the countdown; stops when there is nothing to count. */
 function useClock(running: boolean): number {
@@ -167,20 +186,51 @@ function useClock(running: boolean): number {
   return now
 }
 
+/**
+ * The portfolio's creatures are drawn for the lower half of a tall column.
+ * Here the card sits at the top and centre, so they keep to the sides — the
+ * gutters are wide and there is no table of numbers to compete with, which is
+ * why this page carries twice the portfolio's count. Slow on purpose: a
+ * creature that crosses the gutter in a minute is noticed once and then
+ * becomes water. Fish face left in the drawing, so they travel left.
+ */
+const GUTTER_LIFE: readonly SeaCreature[] = [
+  { species: 'fish', left: 14, top: 26, size: 22, travel: -180, lift: -18, delay: 0, duration: 70, opacity: 0.85 },
+  { species: 'turtle', left: 82, top: 30, size: 30, travel: -220, lift: 22, delay: 12, duration: 95, opacity: 0.8 },
+  { species: 'jelly', left: 90, top: 62, size: 24, travel: 14, lift: -160, delay: 6, duration: 58, opacity: 0.7 },
+  { species: 'jelly', left: 6, top: 72, size: 17, travel: -10, lift: -120, delay: 30, opacity: 0.55, duration: 64 },
+  { species: 'fish', left: 94, top: 48, size: 15, travel: -140, lift: 10, delay: 40, duration: 80, opacity: 0.6 },
+  { species: 'crab', left: 10, top: 94, size: 20, travel: 90, lift: 0, delay: 3, duration: 46, opacity: 0.8 },
+]
+
 function Ground({ children, wide = false }: { children: ReactNode; wide?: boolean }) {
   return (
-    <StillnessProvider held>
-      <main
-        className={cn(
-          'ot-canvas relative flex min-h-dvh justify-center overflow-x-hidden px-0 py-0 sm:px-5 sm:py-11',
-          // A plan sits at the top on a wide screen because the panel beside
-          // it is taller than the card; a dead link is short and centres.
-          wide ? 'items-start' : 'items-start sm:items-center',
-        )}
-      >
-        <div className={cn('relative w-full', wide ? 'max-w-[440px] lg:max-w-[824px]' : 'max-w-[440px]')}>{children}</div>
-      </main>
-    </StillnessProvider>
+    <main
+      className={cn(
+        // `clip`, not `hidden`: hidden would make this a scroll container of
+        // its own, and the panels hanging off the card's right edge would
+        // scroll inside it rather than lengthen the page.
+        'ot-review-sea relative flex min-h-dvh justify-center overflow-x-clip px-0 py-0 sm:px-5 sm:py-11',
+        // A plan sits at the top on a wide screen because the panel beside
+        // it is taller than the card; a dead link is short and centres.
+        wide ? 'items-start' : 'items-start sm:items-center',
+      )}
+    >
+      {/*
+        Clipped as one layer. The caustic sheets are the page's full size and
+        drift and swell as they wash, so unclipped they reached past the
+        bottom of the water by a few pixels that changed with the animation —
+        a strip of bare page that came and went. The portfolio's water clips
+        the same way.
+      */}
+      <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div className="ot-caustic" />
+        <div className="ot-caustic ot-caustic--b" />
+        <BubbleField pattern="canvas" />
+        <SeaLife creatures={GUTTER_LIFE} />
+      </div>
+      <div className={cn('relative w-full', wide ? 'max-w-[440px] min-[1032px]:max-w-[1032px]' : 'max-w-[440px]')}>{children}</div>
+    </main>
   )
 }
 
@@ -237,17 +287,31 @@ const ENDED_COPY: Partial<Record<PlanStatusName, { title: string; body: string }
   superseded: { title: 'Replaced by a newer plan', body: 'Open the newer link instead.' },
 }
 
-function Ended({ status }: { status: PlanStatusName }) {
+/**
+ * A plan opened after it ended. Settled reads the same as it did the moment
+ * it settled — Otto celebrating, the explorer a tap away — because the
+ * receipt job often wins the race to `confirmed` and the page re-reads into
+ * this branch before the person has seen either.
+ */
+function Ended({ status, chain, txHash }: { status: PlanStatusName; chain: string | null; txHash: string | null }) {
   const router = useRouter()
   const copy = ENDED_COPY[status] ?? { title: 'Nothing to sign', body: 'This request is not waiting on you.' }
+  const explorer = chain && txHash ? explorerTxUrl(chain, txHash) : null
   return (
     <div className="flex flex-col items-center gap-2 text-center">
-      {status === 'confirmed' ? <Otto pose="confirmed" size={72} label="Otto, arms up" /> : null}
+      {status === 'confirmed' ? <Settled /> : null}
       <span className="font-[family-name:var(--ot-font-display)] text-[19px] font-bold">{copy.title}</span>
       <p className="m-0 text-[12.5px] leading-[1.45] text-[var(--ot-text-2)]">{copy.body}</p>
-      <Button variant="secondary" size="sm" onClick={() => router.push('/portfolio')}>
-        Back to portfolio
-      </Button>
+      <div className="flex w-full gap-2">
+        {explorer ? (
+          <Button variant="secondary" size="sm" fullWidth onClick={() => window.open(explorer, '_blank', 'noreferrer')}>
+            {status === 'failed' ? 'See the failed transaction' : 'View on the explorer'}
+          </Button>
+        ) : null}
+        <Button variant="secondary" size="sm" fullWidth onClick={() => router.push('/portfolio')}>
+          Back to portfolio
+        </Button>
+      </div>
     </div>
   )
 }

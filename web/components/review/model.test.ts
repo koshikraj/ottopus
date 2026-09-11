@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest'
 import type { Plan } from '@/lib/api'
 import { gateFor } from './wallet-gate'
 import {
+  approvalAmount,
+  approvals,
+  approxUsd,
   assetChanges,
   canSign,
   countdown,
@@ -9,8 +12,10 @@ import {
   effectiveStatus,
   changeSource,
   keyFacts,
+  planSteps,
   liveRefusal,
   executability,
+  headsUp,
   recipientOf,
   simulationNote,
   standingApproval,
@@ -62,6 +67,20 @@ const plan: Plan = {
 
 const before = new Date('2026-09-09T16:00:00Z').getTime()
 const after = new Date('2026-09-09T17:00:00Z').getTime()
+
+describe('a price beside the amount', () => {
+  it('estimates in dollars and says it is an estimate', () => {
+    expect(approxUsd('500', 1)).toBe('≈ $500.00')
+    expect(approxUsd('1,250.5', 2)).toBe('≈ $2,501.00')
+  })
+
+  it('says nothing without a price, and does not price dust', () => {
+    expect(approxUsd('500', null)).toBeNull()
+    expect(approxUsd('500', 0)).toBeNull()
+    expect(approxUsd('<0.001', 4000)).toBeNull()
+    expect(approxUsd('0.000001', 1)).toBe('< $0.01')
+  })
+})
 
 describe('status on the page', () => {
   it('reads a pending plan as expired once the clock passes, with no round trip', () => {
@@ -410,5 +429,184 @@ describe('a trade with nothing simulated yet', () => {
   it('shows nothing rather than a half row when the plan never named the assets', () => {
     const bare = { ...trade('swap', `${BASE}/erc20:${DEGEN}`), humanPlan: { ...plan.humanPlan, assets: undefined } }
     expect(assetChanges(bare)).toEqual([])
+  })
+})
+
+describe('the steps the wallet will be asked for', () => {
+  const ROUTER = '0x1231deb6f5749ef6ce6943a275a1d3e7486f4eae'
+  const approval = {
+    target: `${BASE}:${USDC}`,
+    isContract: true,
+    source: 'abi' as const,
+    verified: true,
+    function: 'approve(address,uint256)',
+    args: [],
+    value: '0',
+    approval: { spender: `${BASE}:${ROUTER}`, amount: '500000000' },
+  }
+  const opaque = {
+    target: `${BASE}:${ROUTER}`,
+    isContract: true,
+    source: 'unknown' as const,
+    verified: true,
+    function: 'unknown',
+    args: [],
+    value: '0',
+  }
+  const swap = (): Plan => ({
+    ...plan,
+    intent: { kind: 'swap', from: `${BASE}/erc20:${USDC}`, to: `${BASE}/slip44:60`, amountIn: '500000000' },
+    outcome: {
+      type: 'calls',
+      calls: [
+        { to: `${BASE}:${USDC}`, value: '0', data: '0x095ea7b3', chainId: BASE },
+        { to: `${BASE}:${ROUTER}`, value: '0', data: '0xdeadbeef', chainId: BASE },
+      ],
+    },
+    humanPlan: {
+      ...plan.humanPlan,
+      steps: [
+        'Swap on Bitget',
+        'Bridge with Squid to Arbitrum One',
+        'At least 0.1194 ETH, or it reverts',
+        'Note from the request: rent',
+      ],
+      assets: [{ id: `${BASE}/erc20:${USDC}`, symbol: 'USDC', decimals: 6 }],
+    },
+    decodedActions: [approval, opaque],
+  })
+
+  /**
+   * The panel used to say "One signature in your wallet" and draw one row
+   * whatever the plan held, so a swap's approval was invisible until the
+   * wallet opened twice.
+   */
+  it('is one row per call, not one row per plan', () => {
+    const steps = planSteps(swap())
+    expect(steps).toHaveLength(2)
+    expect(steps[0]).toEqual({ index: 1, label: 'Approve 500 USDC', detail: 'for 0x1231…4eae' })
+  })
+
+  it('gives the route’s own words to the call that executes the route', () => {
+    // One call runs the whole route, however many hops the provider listed.
+    expect(planSteps(swap())[1]).toEqual({ index: 2, label: 'Swap on Bitget, then Bridge with Squid to Arbitrum One' })
+  })
+
+  /** The floor and the note are this page's sentences, not the route's hops. */
+  it('leaves out the sentences the plan added around the route', () => {
+    const labels = planSteps(swap()).map((s) => s.label)
+    expect(labels.join(' ')).not.toContain('At least')
+    expect(labels.join(' ')).not.toContain('Note from the request')
+  })
+
+  it('says plainly when a call could not be read', () => {
+    const bare = { ...swap(), humanPlan: { ...swap().humanPlan, steps: [] } }
+    expect(planSteps(bare)[1]).toMatchObject({ label: 'A call this page could not read', detail: 'on 0x1231…4eae' })
+  })
+
+  it('names an unlimited approval as unlimited rather than as a number', () => {
+    const greedy = {
+      ...swap(),
+      decodedActions: [{ ...approval, approval: { spender: `${BASE}:${ROUTER}`, amount: 'unlimited' } }, opaque],
+    }
+    expect(planSteps(greedy)[0]?.label).toBe('Approve unlimited')
+  })
+
+  /** The arguments are right there; printing the signature would waste them. */
+  it('is a single row for a transfer, saying what it moves and to whom', () => {
+    expect(planSteps(plan)).toEqual([{ index: 1, label: 'Send 500 USDC', detail: 'to 0x67d2…98d2' }])
+  })
+})
+
+/**
+ * An agent-crafted plan. The declaration stands in for the request, and the
+ * page must read it as a ceiling the agent promised, not a figure it knows.
+ */
+describe('an agent-crafted plan', () => {
+  const WETH = '0x4200000000000000000000000000000000000006'
+  const PM = '0x03a520b32c04bf3beef7beb72e919cf822ed34f1'
+  const custom: Plan = {
+    ...plan,
+    provenance: 'agent_crafted',
+    intent: {
+      kind: 'custom',
+      fromAccount: `${BASE}:${MAIN}`,
+      chainId: BASE,
+      summary: 'Add 1 USDC and the matching WETH to the USDC/WETH 0.05% pool',
+      expectedChanges: [
+        { asset: `${BASE}/erc20:${USDC}`, maxOut: '1000000' },
+        { asset: `${BASE}/erc20:${WETH}`, maxOut: '1208327299744937' },
+      ],
+      approvals: [{ asset: `${BASE}/erc20:${USDC}`, spender: `${BASE}:${PM}`, amount: '1000000' }],
+      note: 'earn fees on idle USDC',
+    },
+    humanPlan: {
+      ...plan.humanPlan,
+      summary: 'Add 1 USDC and the matching WETH to the USDC/WETH 0.05% pool',
+      assets: [
+        { id: `${BASE}/erc20:${USDC}`, symbol: 'USDC', decimals: 6 },
+        { id: `${BASE}/erc20:${WETH}`, symbol: 'WETH', decimals: 18 },
+      ],
+    },
+    simulation: null,
+  }
+
+  it('shows each declared ceiling as an outgoing row, and says it is a ceiling', () => {
+    const rows = assetChanges(custom)
+    expect(rows).toHaveLength(2)
+    expect(rows[0]).toMatchObject({ direction: 'out', amount: '1', symbol: 'USDC', where: 'at most, leaves Main' })
+    expect(rows[1]).toMatchObject({ direction: 'out', symbol: 'WETH' })
+  })
+
+  it('labels the rows as declared, not as the request', () => {
+    expect(changeSource(custom)).toBe('declared')
+    // Once a simulation has been observed the declaration steps aside, as it does for any plan.
+    const observed = { ...custom, simulation: { ...plan.simulation!, assetChanges: [{ assetId: `${BASE}/erc20:${USDC}`, symbol: 'USDC', decimals: 6, diff: '-1000000', pre: '10000000', post: '9000000' }] } }
+    expect(changeSource(observed)).toBe('stored')
+  })
+
+  it('carries the note into the key facts like a transfer does', () => {
+    expect(keyFacts(custom)).toContainEqual({ label: 'Note', value: 'earn fees on idle USDC' })
+  })
+
+  /**
+   * The approved token is the call's target. Naming it after the asset the
+   * plan spends would call a WETH allowance "USDC" on this very plan.
+   */
+  it('names an approval in the words of the token it is on, not the asset the plan leads with', () => {
+    const granting: Plan = {
+      ...custom,
+      decodedActions: [
+        {
+          target: `${BASE}:${WETH}`,
+          isContract: true,
+          source: 'abi',
+          verified: true,
+          contractName: 'WETH9',
+          function: 'approve(address,uint256)',
+          args: [],
+          value: '0',
+          approval: { spender: `${BASE}:${PM}`, amount: '1208327299744937' },
+        },
+      ],
+    }
+    const [grant] = approvals(granting)
+    expect(grant).toMatchObject({ asset: `${BASE}/erc20:${WETH}`, unlimited: false, spenderName: null })
+    expect(approvalAmount(granting, grant!)).toBe('0.001208 WETH')
+    expect(standingApproval(granting)).toMatchObject({ amount: '0.001208', symbol: 'WETH' })
+  })
+
+  it('counts what there is to read first, and grades it by the worst of it', () => {
+    expect(headsUp(custom)).toMatchObject({ count: 0, worst: null })
+    const cautious: Plan = {
+      ...custom,
+      humanPlan: { ...custom.humanPlan, warnings: [{ severity: 'caution', code: 'x', message: 'Careful' }, { severity: 'info', code: 'y', message: 'FYI' }] },
+    }
+    expect(headsUp(cautious)).toMatchObject({ count: 1, worst: 'caution' })
+    const greedy: Plan = {
+      ...cautious,
+      decodedActions: [{ ...cautious.decodedActions[0]!, approval: { spender: `${BASE}:${PM}`, amount: 'unlimited' } }],
+    }
+    expect(headsUp(greedy)).toMatchObject({ count: 2, worst: 'block' })
   })
 })
