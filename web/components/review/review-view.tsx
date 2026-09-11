@@ -10,6 +10,7 @@ import type { Plan, PlanStatusName } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { decoderUrl } from '@/lib/simulators'
 import { AdvancedPanel } from './advanced-panel'
+import { HeadsUpPanel } from './heads-up-panel'
 import { canSign, chainOfPlan, countdown, effectiveStatus } from './model'
 import { ReviewCard } from './review-card'
 import { AdvancedSkeleton, ReviewSkeleton } from './review-skeleton'
@@ -148,9 +149,12 @@ function Review({ token }: { token: string }) {
               <Ended status={status} />
             )}
           </ReviewCard>
+          {/* Under the card, and so under its folded advanced review, on a phone. */}
+          <HeadsUpPanel plan={plan} className="mx-4 mt-4 sm:mx-0 min-[1032px]:hidden" />
         </div>
-        <aside className="absolute top-0 left-full ml-4 hidden w-[280px] min-[1032px]:block">
+        <aside className="absolute top-0 left-full ml-4 hidden w-[280px] flex-col gap-4 min-[1032px]:flex">
           <AdvancedPanel {...panelProps} />
+          <HeadsUpPanel plan={plan} />
         </aside>
       </div>
     </Ground>
