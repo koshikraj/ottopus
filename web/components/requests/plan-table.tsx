@@ -19,6 +19,7 @@ import {
   sortPlans,
   statusCounts,
   walletOptions,
+  whatLine,
 } from './plans'
 
 /**
@@ -125,7 +126,9 @@ function Row({ row, now, opening, disabled, onOpen }: { row: PlanSummary; now: n
   const amount = row.asset && row.asset.decimals !== null ? formatAmount(row.asset.amount, row.asset.decimals, { maxFractionDigits: 4 }) : null
   const walletName = row.account.label ?? row.wallet?.label ?? truncateAddress(row.account.caip10.split(':')[2] ?? '')
   const mark = row.wallet ? refFor(row.account.caip10, walletName, row.wallet.walletType) : null
-  const what = row.recipient ? `${symbol ?? 'Asset'} → ${row.recipient.name ?? truncateAddress(row.recipient.address)}` : row.summary
+  const what = whatLine(row)
+  // A custom plan's amount is the agent's ceiling, and the row must not print a bound as a figure.
+  const ceiling = row.kind === 'custom'
 
   return (
     <li className="border-t border-[var(--ot-border)]">
@@ -134,9 +137,9 @@ function Row({ row, now, opening, disabled, onOpen }: { row: PlanSummary; now: n
         disabled={disabled}
         onClick={() => onOpen(row.id)}
         className={cn(
-          'grid w-full grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-2 px-4 py-3 text-left transition-colors',
+          'grid w-full cursor-pointer grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-2 px-4 py-3 text-left transition-colors',
           'sm:grid-cols-[minmax(0,1.7fr)_150px_150px_120px] sm:items-center sm:gap-4 sm:px-[22px] sm:py-[13px]',
-          'hover:bg-[var(--ot-surface-2)] focus-visible:outline-2 focus-visible:outline-[var(--ot-plan)] disabled:opacity-60',
+          'hover:bg-[var(--ot-surface-2)] focus-visible:outline-2 focus-visible:outline-[var(--ot-plan)] disabled:cursor-default disabled:opacity-60',
           opening && 'bg-[var(--ot-surface-2)]',
         )}
       >
@@ -151,20 +154,23 @@ function Row({ row, now, opening, disabled, onOpen }: { row: PlanSummary; now: n
             ) : null}
           </span>
           <span className="flex min-w-0 flex-col gap-0.5">
-            <span className="text-[14px] font-semibold">{kindWord(row.kind)}</span>
+            {/* The id beside the title, where it has room; on the second line it was what pushed the wallet off. */}
+            <span className="flex items-baseline gap-2">
+              <span className="text-[14px] font-semibold">{kindWord(row.kind)}</span>
+              <span className="font-mono text-[10.5px] text-[var(--ot-text-3)]">#{row.id.slice(0, 6)}</span>
+            </span>
             <span className="flex min-w-0 items-center gap-1.5 text-[12px] text-[var(--ot-text-3)]">
-              <span className="truncate">{what}</span>
+              <span className="min-w-0 truncate">{what}</span>
               <span aria-hidden>·</span>
-              {mark ? <WalletMark wallet={mark} size={14} className="ring-1 ring-[var(--ot-card)]" /> : null}
-              <span className="truncate">{walletName}</span>
-              <span aria-hidden>·</span>
-              <span className="whitespace-nowrap">#{row.id.slice(0, 6)}</span>
+              {mark ? <WalletMark wallet={mark} size={14} className="flex-none ring-1 ring-[var(--ot-card)]" /> : null}
+              <span className="flex-none whitespace-nowrap">{walletName}</span>
             </span>
           </span>
         </span>
 
         <span className="flex flex-col gap-0.5 sm:items-end sm:text-right">
           <code className="font-mono text-[14px] font-semibold tabular-nums">
+            {ceiling && (row.valueUsd !== null || amount) ? <span className="mr-1 font-sans text-[10.5px] font-medium text-[var(--ot-text-3)]">up to</span> : null}
             {row.valueUsd !== null ? `−${formatMoneyFlat(row.valueUsd)}` : amount ? `−${amount} ${symbol ?? ''}` : '—'}
           </code>
           <code className="font-mono text-[12px] text-[var(--ot-text-3)] tabular-nums">
