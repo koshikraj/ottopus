@@ -288,7 +288,7 @@ export function Frame({
                     for before. Below xl there is no room for a rail: the
                     protocols stay in the column and the nudge is the overlay. */}
                 {hasReading && selected && hasDefi ? (
-                  <aside aria-label="DeFi positions" className={`hidden shrink-0 flex-col self-start pt-1 xl:flex ${RAIL_WIDTH}`}>
+                  <aside aria-label="DeFi positions" className={`hidden shrink-0 flex-col self-start xl:flex ${RAIL_WIDTH}`}>
                     <Holdings portfolio={selected} wallets={wallets} show="defi" />
                   </aside>
                 ) : (
