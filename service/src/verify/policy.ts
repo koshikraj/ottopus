@@ -1,5 +1,6 @@
 import { type Hex, decodeFunctionData, maxUint256, toFunctionSignature } from 'viem'
 import {
+  type BuiltIntent,
   type Call,
   type DecodedAction,
   type Intent,
@@ -123,7 +124,7 @@ function approvalIn(call: Call): { spender: string; amount: bigint | 'unlimited'
  * How much goes in, when the intent fixes it. Null for a trade quoted by its
  * output, and for anything with no fixed input to measure against.
  */
-function amountInOf(intent: Intent): bigint | null {
+function amountInOf(intent: BuiltIntent): bigint | null {
   if (intent.kind === 'swap' || intent.kind === 'bridge') {
     return intent.amountIn === undefined ? null : BigInt(intent.amountIn)
   }
@@ -230,6 +231,9 @@ const approvals: Rule = ({ calls, decodedActions, allowedSpenders = [] }) => {
  * to send.
  */
 const nativeValue: Rule = ({ intent, calls, quote }) => {
+  // A custom intent declares its own native value and the custom tier holds
+  // the calls to that; this rule is about a route's fee against a built intent.
+  if (intent.kind === 'custom') return []
   if (isNativeAsset(sourceAssetOf(intent))) return []
   const declared = quote?.nativeFee ? BigInt(quote.nativeFee) : 0n
   const findings: Finding[] = []
@@ -290,6 +294,9 @@ const simulationOutcome: Rule = ({ simulation }) => {
  * size, because the person never agreed to that one at all.
  */
 const simulationMatchesIntent: Rule = ({ intent, simulation }) => {
+  // A custom intent has a list of bounds rather than one source asset; the
+  // custom tier compares the run against the declaration instead.
+  if (intent.kind === 'custom') return []
   if (!simulation || !simulation.success || simulation.assetChanges.length === 0) return []
   const sourceAsset = sourceAssetOf(intent).toLowerCase()
   // A trade quoted by amountOut has no fixed input, so there is no promise to
@@ -531,6 +538,8 @@ const BY_KIND: Readonly<Record<Intent['kind'], readonly Rule[]>> = {
   // Supply lands with #79. Until then it fails closed rather than passing on
   // the global rules alone.
   supply: [() => [{ block: 'supply plans cannot be verified yet' }]],
+  // The heightened tier lands in the next commit; until then fail closed.
+  custom: [() => [{ block: 'custom plans cannot be verified yet' }]],
 }
 
 export function verifyPlan(input: VerifyInput): Verdict {
