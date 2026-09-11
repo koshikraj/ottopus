@@ -96,6 +96,8 @@ if (!config.databaseUrl) {
      * turns it back on, and the pipeline is still tested that way.
      */
     simulator: null,
+    // Null until the next commit wires it; prepare_custom refuses until then.
+    customSimulator: null,
     // Same provider as the portfolio, so a token has one logo and one price
     // whether or not the person holds it. No key means no registry, and the
     // words fall back rather than the plan failing.
