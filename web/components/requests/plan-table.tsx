@@ -80,7 +80,7 @@ export function PlanTable({ plans, opening, onOpen, now }: PlanTableProps) {
       </header>
 
       {/* The same column header the portfolio's token table uses. */}
-      <div className="hidden grid-cols-[minmax(0,1.7fr)_150px_150px_120px] gap-4 px-[22px] pt-1 pb-2 text-[10px] font-semibold tracking-[0.06em] text-[var(--ot-text-2)] uppercase sm:grid">
+      <div className="hidden grid-cols-[minmax(0,2fr)_124px_128px_104px] gap-4 px-[22px] pt-1 pb-2 text-[10px] font-semibold tracking-[0.06em] text-[var(--ot-text-2)] uppercase sm:grid">
         <span>Request</span>
         <span className="text-right">Amount</span>
         <span>Status</span>
@@ -138,7 +138,7 @@ function Row({ row, now, opening, disabled, onOpen }: { row: PlanSummary; now: n
         onClick={() => onOpen(row.id)}
         className={cn(
           'grid w-full cursor-pointer grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-2 px-4 py-3 text-left transition-colors',
-          'sm:grid-cols-[minmax(0,1.7fr)_150px_150px_120px] sm:items-center sm:gap-4 sm:px-[22px] sm:py-[13px]',
+          'sm:grid-cols-[minmax(0,2fr)_124px_128px_104px] sm:items-center sm:gap-4 sm:px-[22px] sm:py-[13px]',
           'hover:bg-[var(--ot-surface-2)] focus-visible:outline-2 focus-visible:outline-[var(--ot-plan)] disabled:cursor-default disabled:opacity-60',
           opening && 'bg-[var(--ot-surface-2)]',
         )}
