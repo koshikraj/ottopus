@@ -605,12 +605,20 @@ const customRules: Rule = (input) => {
       findings.push({ block: `call ${i + 1} to ${short(a.target)} could not be read at all` })
     }
     // Reading the outer call is not reading what it carries. A `bytes[]` is
-    // a wrapper — multicall, execute, batch — and a non-empty `bytes` is calldata
-    // this tier cannot see into; an approval hidden in either would pass the
-    // checks below untouched. Refused rather than guessed at.
+    // a wrapper — multicall, execute, batch — and a non-empty `bytes` is
+    // calldata this tier cannot see into; an approval hidden in either passes
+    // the checks below untouched. A caution, by decision, not a block: v3's
+    // own decrease and native-side create arrive as a multicall, and refusing
+    // every vendor bundle was judged too high a price. The page says what it
+    // could not read; the person decides.
     if (carriesOpaqueCalldata(a)) {
       findings.push({
-        block: `call ${i + 1} to ${short(a.target)} (${a.function.replace(/\(.*$/, '')}) carries calldata inside its arguments that this plan cannot read; a wrapper cannot be checked for what it wraps`,
+        warn: {
+          severity: 'caution' as const,
+          code: 'opaque_calldata',
+          message: `call ${i + 1} to ${short(a.target)} (${a.function.replace(/\(.*$/, '')}) carries calldata inside its arguments that this page cannot read — an approval in there would not be caught`,
+          saferAlternative: 'Prefer the same action as separate calls, each one readable, over a bundle.',
+        },
       })
     }
   })

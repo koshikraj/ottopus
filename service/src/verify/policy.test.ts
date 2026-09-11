@@ -705,19 +705,28 @@ describe('an agent-authored plan', () => {
     })
   })
 
-  /** Reviewed: a verified wrapper around an unlimited approval passed untouched. */
+  /**
+   * Reviewed: a verified wrapper around an unlimited approval passed untouched.
+   * By decision it still passes — v3's own decrease arrives as a multicall —
+   * but the page is told what it could not read, and this test pins that the
+   * approval inside is indeed invisible, so nobody mistakes the caution for a check.
+   */
   describe('calldata it cannot see into', () => {
-    it('refuses a wrapper — the approval inside a multicall was invisible to every check', async () => {
+    it('cautions on a wrapper, and the approval inside it is not seen', async () => {
       const hidden = encodeFunctionData({ abi: KNOWN_ABI, functionName: 'setApprovalForAll', args: [MALLORY, true] })
       const wrapped = encodeFunctionData({ abi: CLAIM_ABI, functionName: 'multicall', args: [[hidden]] })
       const verdict = await verifyCustom(intent({ expectedChanges: [], approvals: [] }), [call(PM, wrapped)], traced([]))
-      expect(verdict).toMatchObject({ ok: false, reasons: [expect.stringMatching(/multicall.*cannot be checked for what it wraps/)] })
+      expect(verdict.ok).toBe(true)
+      expect(verdict.warnings).toEqual([
+        expect.objectContaining({ code: 'opaque_calldata', severity: 'caution', message: expect.stringMatching(/multicall.*would not be caught/) }),
+      ])
     })
 
-    it('refuses a non-empty bytes argument, and passes an empty one', async () => {
+    it('cautions on a non-empty bytes argument, and says nothing of an empty one', async () => {
       const bare = intent({ expectedChanges: [], approvals: [] })
       const loaded = await verifyCustom(bare, [call(PM, encodeFunctionData({ abi: CLAIM_ABI, functionName: 'exec', args: ['0x095ea7b3'] }))], traced([]))
-      expect(loaded.ok).toBe(false)
+      expect(loaded.ok).toBe(true)
+      expect(loaded.warnings.map((w) => w.code)).toEqual(['opaque_calldata'])
       const empty = await verifyCustom(bare, [call(PM, encodeFunctionData({ abi: CLAIM_ABI, functionName: 'exec', args: ['0x'] }))], traced([]))
       expect(empty).toEqual({ ok: true, warnings: [] })
     })
