@@ -6,7 +6,7 @@ import { usePrivyAvailable } from '@/components/auth'
 import { Otto } from '@/components/brand'
 import { BubbleField, OttoLoader, SeaLife } from '@/components/motion'
 import { SkeletonShelf } from '@/components/motion/loaders'
-import { Figure, FirstIntentNudge, IntentNudge, PageHeader, TabBar, promptsFor, useRailNudge } from '@/components/shell'
+import { Figure, IntentNudge, IntentNudgeOverlay, PageHeader, TabBar, promptsFor, useRailNudge } from '@/components/shell'
 import { Button, Callout, EmptyState, ErrorState } from '@/components/ui'
 import {
   ArmCard,
@@ -293,9 +293,7 @@ export function Frame({
                     <IntentNudge prompts={prompts} />
                   </aside>
                 )}
-                <aside aria-label="Suggestions" className="ot-scroll absolute right-3 bottom-3 left-3 z-20 max-h-[45dvh] overflow-y-auto rounded-2xl bg-[var(--ot-card)] shadow-lg sm:left-auto sm:w-[400px] xl:hidden">
-                  <IntentNudge prompts={prompts} />
-                </aside>
+                <IntentNudgeOverlay prompts={prompts} className="xl:hidden" />
               </div>
             </Sea>
           )}
@@ -348,9 +346,7 @@ export function Frame({
       )}
 
       {dialog}
-      {tokensView ? null : (
-        <FirstIntentNudge prompts={prompts} className="absolute right-3 bottom-3 left-3 z-20 max-h-[45dvh] overflow-y-auto rounded-2xl bg-[var(--ot-card)] shadow-lg sm:left-auto" />
-      )}
+      {tokensView ? null : <IntentNudgeOverlay prompts={prompts} />}
     </div>
   )
 }

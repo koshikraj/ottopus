@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useState } from 'react'
-import { Otto } from '@/components/brand'
+import { Otto, OttoBadge } from '@/components/brand'
 import { Button, Card } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { INTENT_PROMPTS } from './prompts'
@@ -120,3 +120,50 @@ export function IntentNudge({ variant = 'card', prompts = INTENT_PROMPTS, classN
 
 /** The old name. Same component. */
 export const FirstIntentNudge = IntentNudge
+
+/**
+ * The nudge where there is no rail: a pill in the corner that opens into the
+ * card and closes again.
+ *
+ * The card cannot be dismissed any more, and a card that cannot be dismissed
+ * cannot sit on top of a table of balances either. So at rest it is a pill
+ * the size of a button, and it is the person who decides when it is a card.
+ * Nothing is remembered between visits — it opens closed.
+ */
+export function IntentNudgeOverlay({ prompts, className }: Pick<IntentNudgeProps, 'prompts' | 'className'>) {
+  const [open, setOpen] = useState(false)
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        aria-expanded={false}
+        className={cn(
+          'absolute right-3 bottom-3 z-20 inline-flex cursor-pointer items-center gap-2 rounded-full border border-[var(--ot-border-strong)] bg-[var(--ot-card)] py-[7px] pr-3.5 pl-2.5',
+          'text-[13px] font-semibold shadow-[var(--ot-shadow-card)] transition-colors hover:bg-[var(--ot-surface-2)]',
+          className,
+        )}
+      >
+        <OttoBadge tier="icon" size={22} animate="idle" />
+        Try Otto
+      </button>
+    )
+  }
+
+  return (
+    <div
+      className={cn(
+        'ot-scroll absolute right-3 bottom-3 left-3 z-20 max-h-[45dvh] overflow-y-auto rounded-2xl bg-[var(--ot-card)] shadow-lg sm:left-auto sm:w-[400px]',
+        className,
+      )}
+    >
+      <IntentNudge prompts={prompts} className="border-t-0" />
+      <div className="px-5 pb-3 sm:px-[26px]">
+        <Button variant="ghost" size="sm" onClick={() => setOpen(false)}>
+          Close
+        </Button>
+      </div>
+    </div>
+  )
+}
