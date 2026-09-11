@@ -32,6 +32,34 @@
   }
 }
 
+/* Settled: Otto keeps hopping. Anchored at his feet so the squash reads as a
+   landing, and gated like every other motion so a held region stills him. */
+.ot-celebrate {
+  transform-origin: 50% 100%;
+  animation: ot-hop 1.4s var(--ot-ease-out) infinite;
+  animation-play-state: var(--ot-ambient-play);
+}
+@keyframes ot-hop {
+  0%,
+  100% {
+    transform: translateY(0) scale(1, 1);
+  }
+  14% {
+    transform: translateY(0) scale(1.06, 0.94);
+  }
+  48% {
+    transform: translateY(-14px) scale(0.97, 1.04);
+  }
+  78% {
+    transform: translateY(0) scale(1.04, 0.96);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ot-celebrate {
+    animation: none;
+  }
+}
+
 /* The expander opens in place, never a dialog. */
 .ot-review-details[open] > summary .ot-review-caret {
   transform: rotate(180deg);

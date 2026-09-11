@@ -8,13 +8,14 @@ import { BubbleField, SeaLife, type SeaCreature } from '@/components/motion'
 import { Button, Callout, StatusChip } from '@/components/ui'
 import type { Plan, PlanStatusName } from '@/lib/api'
 import { cn } from '@/lib/cn'
+import { explorerTxUrl } from '@/lib/chains'
 import { decoderUrl } from '@/lib/simulators'
 import { AdvancedPanel } from './advanced-panel'
 import { HeadsUpPanel } from './heads-up-panel'
 import { canSign, chainOfPlan, countdown, effectiveStatus } from './model'
 import { ReviewCard } from './review-card'
 import { AdvancedSkeleton, ReviewSkeleton } from './review-skeleton'
-import { SignPanel } from './sign-panel'
+import { Settled, SignPanel } from './sign-panel'
 import { useReview } from './use-review'
 import { useSimulation } from './use-simulation'
 
@@ -146,7 +147,7 @@ function Review({ token }: { token: string }) {
             ) : status === 'submitted' ? (
               <SignPanel plan={plan} move={move} open={false} txHash={statusDetail?.txHash ?? null} />
             ) : (
-              <Ended status={status} />
+              <Ended status={status} chain={chainId} txHash={statusDetail?.txHash ?? null} />
             )}
           </ReviewCard>
           {/* Under the card, and so under its folded advanced review, on a phone. */}
@@ -255,17 +256,31 @@ const ENDED_COPY: Partial<Record<PlanStatusName, { title: string; body: string }
   superseded: { title: 'Replaced by a newer plan', body: 'Open the newer link instead.' },
 }
 
-function Ended({ status }: { status: PlanStatusName }) {
+/**
+ * A plan opened after it ended. Settled reads the same as it did the moment
+ * it settled — Otto celebrating, the explorer a tap away — because the
+ * receipt job often wins the race to `confirmed` and the page re-reads into
+ * this branch before the person has seen either.
+ */
+function Ended({ status, chain, txHash }: { status: PlanStatusName; chain: string | null; txHash: string | null }) {
   const router = useRouter()
   const copy = ENDED_COPY[status] ?? { title: 'Nothing to sign', body: 'This request is not waiting on you.' }
+  const explorer = chain && txHash ? explorerTxUrl(chain, txHash) : null
   return (
     <div className="flex flex-col items-center gap-2 text-center">
-      {status === 'confirmed' ? <Otto pose="confirmed" size={72} label="Otto, arms up" /> : null}
+      {status === 'confirmed' ? <Settled /> : null}
       <span className="font-[family-name:var(--ot-font-display)] text-[19px] font-bold">{copy.title}</span>
       <p className="m-0 text-[12.5px] leading-[1.45] text-[var(--ot-text-2)]">{copy.body}</p>
-      <Button variant="secondary" size="sm" onClick={() => router.push('/portfolio')}>
-        Back to portfolio
-      </Button>
+      <div className="flex w-full gap-2">
+        {explorer ? (
+          <Button variant="secondary" size="sm" fullWidth onClick={() => window.open(explorer, '_blank', 'noreferrer')}>
+            {status === 'failed' ? 'See the failed transaction' : 'View on the explorer'}
+          </Button>
+        ) : null}
+        <Button variant="secondary" size="sm" fullWidth onClick={() => router.push('/portfolio')}>
+          Back to portfolio
+        </Button>
+      </div>
     </div>
   )
 }
