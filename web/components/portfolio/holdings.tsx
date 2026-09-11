@@ -37,7 +37,7 @@ export function Holdings({ portfolio, wallets = [] }: HoldingsProps) {
   const empty = portfolio.assets.length === 0 && portfolio.protocols.length === 0
 
   return (
-    <div className="ot-scroll min-h-0 min-w-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-4 pt-3 pb-5 sm:px-6" tabIndex={0} aria-label="Holdings">
+    <div className="ot-scroll @container min-h-0 min-w-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-4 pt-3 pb-5 sm:px-6" tabIndex={0} aria-label="Holdings">
       {empty ? (
         <p className="ot-token-row py-8 text-center text-[13px] text-[var(--ot-text-2)]">No balances on this network.</p>
       ) : (
