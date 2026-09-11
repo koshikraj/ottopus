@@ -8,9 +8,18 @@ import { Button, Dialog } from '@/components/ui'
 import type { Plan, WebTransition } from '@/lib/api'
 import { addChainParams, chainName, evmIdOf, explorerTxUrl } from '@/lib/chains'
 import { getAddress } from 'viem'
+import { cn } from '@/lib/cn'
 import { addressOf, truncateAddress } from '@/lib/format'
 import { approvals, chainOfPlan, standingApproval } from './model'
-import { BatchAccepted, SequentialNeedsConsent, UserRejected, sendPlanCalls, waitForReceipt } from './send-calls'
+import {
+  BatchAccepted,
+  type Batching,
+  SequentialNeedsConsent,
+  UserRejected,
+  probeBatching,
+  sendPlanCalls,
+  waitForReceipt,
+} from './send-calls'
 import { gateFor } from './wallet-gate'
 
 /**
@@ -75,6 +84,15 @@ export function SignPanel({ plan, move, open, txHash, recheck }: SignPanelProps)
   const consented = useRef(false)
   const [confirmCancel, setConfirmCancel] = useState(false)
   const [cancelling, setCancelling] = useState(false)
+  /**
+   * What the wallet says about batching, for the label only.
+   *
+   * Never consulted when sending: `sendPlanCalls` offers the batch whatever
+   * this says. "unknown" is a real answer and stays silent rather than
+   * guessing, because a wallet that cannot be asked is not a wallet that
+   * cannot batch.
+   */
+  const [batching, setBatching] = useState<Batching>('unknown')
   const wroteAwaiting = useRef(false)
 
   const chain = chainOfPlan(plan)
@@ -88,6 +106,7 @@ export function SignPanel({ plan, move, open, txHash, recheck }: SignPanelProps)
   // Memoised: called bare in the body, it defeated the React Compiler's
   // memoisation of every callback below it.
   const standing = useMemo(() => standingApproval(plan), [plan])
+  const steps = plan.outcome.type === 'calls' ? plan.outcome.calls.length : 1
   const signerName = plan.resolution.account.label
     ? `${plan.resolution.account.label} (${truncateAddress(wanted)})`
     : truncateAddress(wanted)
@@ -101,6 +120,27 @@ export function SignPanel({ plan, move, open, txHash, recheck }: SignPanelProps)
       wroteAwaiting.current = false
     })
   }, [open, gate.kind, plan.status, move])
+
+  /**
+   * Ask once the right wallet is connected, and only when there is more than
+   * one call — with a single call there is nothing to batch and nothing worth
+   * saying about it.
+   */
+  useEffect(() => {
+    if (!wallet || gate.kind !== 'ready' || steps < 2) return
+    let live = true
+    void (async () => {
+      try {
+        const answer = await probeBatching(await wallet.getEthereumProvider(), wanted, chain)
+        if (live) setBatching(answer)
+      } catch {
+        if (live) setBatching('unknown')
+      }
+    })()
+    return () => {
+      live = false
+    }
+  }, [wallet, gate.kind, wanted, chain, steps])
 
   // Resume the receipt watch for a submitted plan through the named wallet's
   // provider, when that wallet is connected. Without it the page still shows
@@ -320,6 +360,28 @@ export function SignPanel({ plan, move, open, txHash, recheck }: SignPanelProps)
       ) : null}
 
       {/*
+        What signing will actually involve, once the wallet is connected and
+        there is more than one step. Silent on "unknown": a wallet that could
+        not be asked is not a wallet that cannot batch, and the send path
+        tries regardless.
+      */}
+      {steps > 1 && batching !== 'unknown' && !askConsent ? (
+        <div
+          className={cn(
+            'flex w-fit items-center gap-1.5 rounded-full px-2.5 py-1 text-[11.5px] font-medium',
+            batching === 'yes'
+              ? 'bg-[var(--ot-ok-bg)] text-[var(--ot-ok-text)]'
+              : 'bg-[var(--ot-surface-3)] text-[var(--ot-text-2)]',
+          )}
+        >
+          <BatchMark together={batching === 'yes'} />
+          {batching === 'yes'
+            ? `All ${steps} steps in one signature`
+            : `${steps} signatures, one after the other`}
+        </div>
+      ) : null}
+
+      {/*
         The wallet will not batch. Say exactly what stopping halfway would
         leave behind, then let the person decide — an allowance for a named
         amount to the router this plan already shows is a risk somebody can
@@ -412,5 +474,29 @@ export function SignPanel({ plan, move, open, txHash, recheck }: SignPanelProps)
         }
       />
     </div>
+  )
+}
+
+/**
+ * Two stacked shapes for a queue, one enclosing shape for a batch.
+ *
+ * Drawn rather than lettered so it reads at 11px with no font dependency,
+ * and so the two states are one glyph apart instead of two unrelated icons.
+ */
+function BatchMark({ together }: { together: boolean }) {
+  return (
+    <svg aria-hidden viewBox="0 0 12 12" className="h-3 w-3 flex-none" fill="none" stroke="currentColor" strokeWidth="1.4">
+      {together ? (
+        <>
+          <rect x="1.2" y="1.2" width="6.2" height="6.2" rx="1.6" />
+          <path d="M4.6 10.8h4.4a1.8 1.8 0 0 0 1.8-1.8V4.6" strokeLinecap="round" />
+        </>
+      ) : (
+        <>
+          <rect x="1.2" y="1.2" width="9.6" height="3.4" rx="1.4" />
+          <rect x="1.2" y="7.4" width="9.6" height="3.4" rx="1.4" />
+        </>
+      )}
+    </svg>
   )
 }
