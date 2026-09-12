@@ -123,9 +123,9 @@ export default function Landing() {
                 Ottopus never holds a key and never asks for a seed phrase.
               </p>
 
-              {/* One quiet row: the wallets people bring, by their own marks. */}
-              <ul className="m-0 flex list-none flex-wrap items-center gap-x-3 gap-y-2 p-0 pt-1" aria-label="Works with">
-                <li className="text-[11px] font-semibold tracking-[0.06em] text-[var(--ot-text-3)] uppercase">Works with</li>
+              {/* One quiet row: any wallet, and the marks of the ones people bring. */}
+              <ul className="m-0 flex list-none flex-wrap items-center gap-x-3 gap-y-2 p-0 pt-1" aria-label="Works with any wallet">
+                <li className="text-[11px] font-semibold tracking-[0.06em] text-[var(--ot-text-3)] uppercase">Works with any wallet</li>
                 {WORKS_WITH.map((type) => (
                   <li key={type} className="flex items-center gap-1.5 text-[12px] text-[var(--ot-text-2)]">
                     <AssetIcon url={walletMark(type)} name={WALLET_NAMES[type] ?? type} size={18} className="ring-[var(--ot-card)]" />
