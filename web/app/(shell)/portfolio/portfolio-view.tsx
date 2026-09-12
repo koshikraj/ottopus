@@ -171,19 +171,24 @@ export function Frame({
       <PageHeader
         title="Portfolio"
         eyebrow={
-          <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <span>
-              <strong className="font-semibold text-[var(--ot-text)]">{greeting(person?.name, hour, person?.mono)}.</strong>{' '}
+          <span className="flex flex-col gap-1">
+            <strong className="text-[15px] font-semibold text-[var(--ot-text)]">{greeting(person?.name, hour, person?.mono)}</strong>
+            <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
               {balanceLine(wallets.length)}
+              {linked ? <WalletMarks holders={[...walletRefsOf(wallets).values()]} /> : null}
             </span>
-            {linked ? <WalletMarks holders={[...walletRefsOf(wallets).values()]} /> : null}
           </span>
         }
         headline={money ? <Figure {...money} /> : loading || linked || failure
           ? <Figure whole="—" /> : <Figure whole="$0" fraction="00" />}
         detail={loading ? 'Loading wallets…' : failure && !linked ? 'Wallets unavailable' : !linked ? 'No wallets linked yet.' : balancesLoading ? 'Reading balances…' : !hasReading ? 'Balances unavailable' : (
           <span>
-            {delta?.text ?? 'No change today'}
+            {/* Green up, red down: the same pair every change figure on the page uses. */}
+            {delta ? (
+              <span className={delta.direction === 'up' ? 'text-[var(--ot-ok-text)]' : 'text-[var(--ot-block-text)]'}>{delta.text}</span>
+            ) : (
+              'No change today'
+            )}
             {selectedNetwork ? ` · ${portfolio?.chains.find((chain) => chain.chainId === selectedNetwork)?.name}` : ''}
             {missing.length > 0 ? ' · Partial total' : ''}
             {portfolioState?.status === 'failed' ? ' · Last successful reading' : ''}
