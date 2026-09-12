@@ -164,7 +164,8 @@ function expectedIn(plan: Plan, holder: string): AssetChange[] {
       direction: 'in',
       amount: formatAmount(expected, got.decimals),
       symbol: got.symbol,
-      where: crossing ? `arrives on ${chainName(chainOfAsset(to))}` : `arrives in ${holder}`,
+      // The same wallet receives on the far chain; saying so is the address the row was missing.
+      where: crossing ? `arrives on ${chainName(chainOfAsset(to))} in ${holder}` : `arrives in ${holder}`,
       assetId: to,
       chainId: chainOfAsset(to),
       estimate: true,

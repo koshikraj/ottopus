@@ -235,7 +235,7 @@ describe('what the simulation observed', () => {
     } as Plan
     expect(assetChanges(bridge).map((c) => `${c.direction} ${c.amount} ${c.symbol} ${c.chainId} ${c.where}${c.estimate ? ' (about)' : ''}`)).toEqual([
       'out 41.75 USDT eip155:56 leaves Main',
-      'in 41.634022 USDC eip155:8453 arrives on Base (about)',
+      'in 41.634022 USDC eip155:8453 arrives on Base in Main (about)',
     ])
     // Before any run, the same two rows, both from the request.
     const unrun = { ...bridge, simulation: null } as Plan
@@ -427,7 +427,7 @@ describe('a trade with nothing simulated yet', () => {
 
   it('names the destination chain when the trade crosses one', () => {
     const rows = assetChanges(trade('bridge', `eip155:42161/erc20:${DEGEN}`))
-    expect(rows[1]).toMatchObject({ direction: 'in', chainId: 'eip155:42161', where: 'arrives on Arbitrum One' })
+    expect(rows[1]).toMatchObject({ direction: 'in', chainId: 'eip155:42161', where: 'arrives on Arbitrum One in Main' })
   })
 
   it('is labelled as the request, because that is what it is', () => {
