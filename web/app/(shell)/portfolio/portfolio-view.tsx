@@ -21,7 +21,7 @@ import type { Arm } from '@/lib/api'
 import { formatDelta, formatMoney, formatMoneyFlat, formatShare } from '@/lib/format'
 import { useMediaQuery } from '@/lib/use-media-query'
 import {
-  Holdings, NetworkFilter, usePortfolio, portfolioOf, portfolioFailureText, unreadArms,
+  Holdings, NetworkFilter, WalletFilter, usePortfolio, portfolioOf, portfolioFailureText, unreadArms,
   type PortfolioState,
 } from '@/components/portfolio'
 import { balanceLine, greeting } from '@/components/portfolio/greeting'
@@ -142,11 +142,33 @@ export function Frame({
   dialog,
 }: FrameProps) {
   const [network, setNetwork] = useState<string | null>(null)
+  const [wallet, setWallet] = useState<string>('all')
   // Read once: a greeting that flips from gm to hello mid-visit is a clock, not a greeting.
   const [hour] = useState(() => new Date().getHours())
   const portfolio = portfolioState ? portfolioOf(portfolioState) : null
   const selectedNetwork = portfolio?.chains.some((chain) => chain.chainId === network) ? network : null
-  const selected = useMemo(() => portfolio ? selectPortfolio(portfolio, selectedNetwork) : null, [portfolio, selectedNetwork])
+  const selectedWallet = wallets.some((arm) => arm.id === wallet) ? wallet : null
+  const selected = useMemo(
+    () => (portfolio ? selectPortfolio(portfolio, selectedNetwork, selectedWallet) : null),
+    [portfolio, selectedNetwork, selectedWallet],
+  )
+  // The network's whole, for the figure beside each wallet in the picker.
+  const onNetwork = useMemo(() => (portfolio ? selectPortfolio(portfolio, selectedNetwork) : null), [portfolio, selectedNetwork])
+  const walletRefs = useMemo(() => walletRefsOf(wallets), [wallets])
+  const walletChoices = useMemo(
+    () =>
+      wallets.map((arm) => {
+        const ref = walletRefs.get(arm.id)!
+        const summary = onNetwork?.arms.find((item) => item.walletId === arm.id)
+        return {
+          id: arm.id,
+          label: ref.name,
+          ref,
+          detail: summary?.status === 'ok' ? formatMoneyFlat(summary.total, onNetwork?.currency) : undefined,
+        }
+      }),
+    [wallets, walletRefs, onNetwork],
+  )
   const missing = unreadArms(portfolio)
   const hasReading = !!portfolio?.arms.some((arm) => arm.status === 'ok')
   const money = selected && hasReading ? formatMoney(selected.total, selected.currency) : null
@@ -175,7 +197,7 @@ export function Frame({
             <strong className="text-[15px] font-semibold text-[var(--ot-text)]">{greeting(person?.name, hour, person?.mono)}</strong>
             <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
               {balanceLine(wallets.length)}
-              {linked ? <WalletMarks holders={[...walletRefsOf(wallets).values()]} /> : null}
+              {linked ? <WalletMarks holders={[...walletRefs.values()]} /> : null}
             </span>
           </span>
         }
@@ -190,6 +212,7 @@ export function Frame({
               'No change today'
             )}
             {selectedNetwork ? ` · ${portfolio?.chains.find((chain) => chain.chainId === selectedNetwork)?.name}` : ''}
+            {selectedWallet ? ` · ${walletRefs.get(selectedWallet)?.name}` : ''}
             {missing.length > 0 ? ' · Partial total' : ''}
             {portfolioState?.status === 'failed' ? ' · Last successful reading' : ''}
           </span>
@@ -242,7 +265,12 @@ export function Frame({
               { value: 'wallets', label: 'Wallets' },
               { value: 'approvals', label: 'Approvals', disabled: true },
             ]}
-            aside={<NetworkFilter chains={portfolio?.chains ?? []} value={selectedNetwork} onChange={setNetwork} />}
+            aside={
+              <span className="flex flex-wrap items-center gap-2">
+                <WalletFilter wallets={walletChoices} value={selectedWallet ?? 'all'} onChange={setWallet} />
+                <NetworkFilter chains={portfolio?.chains ?? []} value={selectedNetwork} onChange={setNetwork} />
+              </span>
+            }
           />
 
           {tab === 'wallets' ? (
