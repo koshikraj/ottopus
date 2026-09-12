@@ -94,11 +94,19 @@ export async function visualsFor(
     }),
   )
 
+  // The chain that signs, and every chain an asset on the page is on — a
+  // bridge's arriving row is on another one, and the page draws its badge.
   const [namespace, reference] = plan.resolution.account.caip10.split(':')
-  const chainId = `${namespace}:${reference}`
-  const chain = portfolio?.chains.find((c) => c.chainId.toLowerCase() === chainId.toLowerCase())
-  const info = findChain(chainId)
-  if (chain || info) {
+  const chainIds = new Set([`${namespace}:${reference}`])
+  for (const id of assetIdsOf(plan)) {
+    const [ns, rest] = id.split(':')
+    const chainRef = rest?.split('/')[0]
+    if (ns && chainRef) chainIds.add(`${ns}:${chainRef}`)
+  }
+  for (const chainId of chainIds) {
+    const chain = portfolio?.chains.find((c) => c.chainId.toLowerCase() === chainId.toLowerCase())
+    const info = findChain(chainId)
+    if (!chain && !info) continue
     visuals.chains[chainId] = {
       name: chain?.name ?? info?.name ?? chainId,
       iconUrl: chain?.iconUrl ?? null,

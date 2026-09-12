@@ -68,6 +68,19 @@ describe('visuals beside the plan', () => {
   })
 })
 
+describe('a bridge', () => {
+  it('carries the destination chain too, so the arriving row can wear its badge', async () => {
+    const plan = planFor('0191a2b3-c4d5-4e6f-8a9b-0c1d2e3f4a5b')
+    const bridge = {
+      ...plan,
+      intent: { kind: 'bridge', from: 'eip155:8453/slip44:60', to: 'eip155:42161/slip44:60', amountIn: '1', slippageBps: 50 },
+    } as unknown as Plan
+    const visuals = await visualsFor(bridge, arms, portfolio)
+    expect(Object.keys(visuals.chains).sort()).toEqual(['eip155:42161', 'eip155:8453'])
+    expect(visuals.chains['eip155:42161']).toMatchObject({ name: 'Arbitrum One', nativeSymbol: 'ETH' })
+  })
+})
+
 describe('an asset the portfolio has never seen', () => {
   /**
    * A trade's receiving side, which nobody holds yet by definition. Without
