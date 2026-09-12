@@ -12,6 +12,7 @@ import {
   ArmCard,
   LinkWalletDialog,
   MAX_ARMS,
+  UnlinkDialog,
   armsOf,
   failureText,
   useWallets,
@@ -46,7 +47,7 @@ export function PortfolioView() {
 function ConnectedPortfolio() {
   // One `useWallets` for the whole page — two would mean two components
   // reconciling the same account against the same token.
-  const { state, linkWallet, linking, linkError, addWatchOnly } = useWallets()
+  const { state, linkWallet, linking, linkError, addWatchOnly, unlink } = useWallets()
   const [linkOpen, setLinkOpen] = useState(false)
   const tab = useSearchParams().get('tab') ?? 'tokens'
   const identity = useIdentity()
@@ -65,6 +66,7 @@ function ConnectedPortfolio() {
       linkError={linkError}
       tab={tab}
       onLink={() => setLinkOpen(true)}
+      onUnlink={unlink}
       dialog={
         <LinkWalletDialog
           open={linkOpen}
@@ -126,6 +128,8 @@ interface FrameProps {
   linkError?: string | null
   tab?: string
   onLink?: (() => void) | undefined
+  /** Unlinks an arm, after the confirm this view owns. Absent, the cards are read-only. */
+  onUnlink?: ((arm: Arm) => Promise<void>) | undefined
   dialog?: React.ReactNode
 }
 
@@ -139,9 +143,11 @@ export function Frame({
   linkError,
   tab = 'tokens',
   onLink,
+  onUnlink,
   dialog,
 }: FrameProps) {
   const [network, setNetwork] = useState<string | null>(null)
+  const [unlinking, setUnlinking] = useState<Arm | null>(null)
   const [wallet, setWallet] = useState<string>('all')
   // Read once: a greeting that flips from gm to hello mid-visit is a clock, not a greeting.
   const [hour] = useState(() => new Date().getHours())
@@ -286,6 +292,7 @@ export function Frame({
                       value={known ? formatMoneyFlat(summary.total, selected?.currency) : null}
                       share={known ? `${formatShare(summary.share)} of holdings`
                         : balancesLoading ? 'Reading balance…' : 'Balance unavailable'}
+                      onUnlink={onUnlink ? () => setUnlinking(arm) : undefined}
                     />
                   )
                 })}
@@ -397,6 +404,7 @@ export function Frame({
       )}
 
       {dialog}
+      {onUnlink ? <UnlinkDialog arm={unlinking} onClose={() => setUnlinking(null)} onUnlink={onUnlink} /> : null}
       {tokensView ? null : <IntentNudgeOverlay prompts={prompts} />}
     </div>
   )
