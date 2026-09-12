@@ -2,29 +2,32 @@
 
 import { useSearchParams } from 'next/navigation'
 import { useMemo, useState } from 'react'
-import { usePrivyAvailable } from '@/components/auth'
+import { useIdentity, usePrivyAvailable } from '@/components/auth'
 import { Otto } from '@/components/brand'
 import { BubbleField, OttoLoader, SeaLife } from '@/components/motion'
 import { SkeletonShelf } from '@/components/motion/loaders'
-import { Figure, FirstIntentNudge, PageHeader, TabBar } from '@/components/shell'
+import { Figure, IntentNudge, IntentNudgeOverlay, PageHeader, TabBar, promptsFor, useRailNudge } from '@/components/shell'
 import { Button, Callout, EmptyState, ErrorState } from '@/components/ui'
 import {
   ArmCard,
   LinkWalletDialog,
   MAX_ARMS,
+  UnlinkDialog,
   armsOf,
   failureText,
   useWallets,
   type WalletsFailure,
 } from '@/components/wallets'
 import type { Arm } from '@/lib/api'
-import { cn } from '@/lib/cn'
 import { formatDelta, formatMoney, formatMoneyFlat, formatShare } from '@/lib/format'
+import { useMediaQuery } from '@/lib/use-media-query'
 import {
-  Holdings, NetworkFilter, usePortfolio, portfolioOf, portfolioFailureText, unreadArms,
+  Holdings, NetworkFilter, WalletFilter, usePortfolio, portfolioOf, portfolioFailureText, unreadArms,
   type PortfolioState,
 } from '@/components/portfolio'
+import { balanceLine, greeting } from '@/components/portfolio/greeting'
 import { selectPortfolio } from '@/components/portfolio/select-portfolio'
+import { WalletMarks, walletRefsOf } from '@/components/portfolio/wallet-marks'
 
 /**
  * Portfolio, per P2 in the design: aggregate on top, per-wallet below.
@@ -44,9 +47,10 @@ export function PortfolioView() {
 function ConnectedPortfolio() {
   // One `useWallets` for the whole page — two would mean two components
   // reconciling the same account against the same token.
-  const { state, linkWallet, linking, linkError, addWatchOnly } = useWallets()
+  const { state, linkWallet, linking, linkError, addWatchOnly, unlink } = useWallets()
   const [linkOpen, setLinkOpen] = useState(false)
   const tab = useSearchParams().get('tab') ?? 'tokens'
+  const identity = useIdentity()
 
   const wallets = armsOf(state)
   const portfolio = usePortfolio(wallets, state.status !== 'loading')
@@ -54,6 +58,7 @@ function ConnectedPortfolio() {
   return (
     <Frame
       wallets={wallets}
+      person={identity ? { name: identity.label, mono: identity.mono ?? false } : null}
       portfolioState={portfolio.state}
       onRefresh={portfolio.refresh}
       loading={state.status === 'loading'}
@@ -61,6 +66,7 @@ function ConnectedPortfolio() {
       linkError={linkError}
       tab={tab}
       onLink={() => setLinkOpen(true)}
+      onUnlink={unlink}
       dialog={
         <LinkWalletDialog
           open={linkOpen}
@@ -78,10 +84,20 @@ function ConnectedPortfolio() {
 }
 
 /**
+ * The rail: two fifths of the section, within reason. A protocol card wants
+ * more room than a nudge does, and the token table has columns to spare —
+ * so 400px at the least, 520px at the most, and 40% between. Only at xl:
+ * between lg and xl the column is about 760px, and a rail that size in it
+ * would leave the table nothing.
+ */
+const RAIL_WIDTH = 'xl:w-[clamp(400px,40%,520px)]'
+const RAIL_MEDIA = '(min-width: 1280px)'
+
+/**
  * Where the ambient layer goes on a view that keeps a rail: in the rail, which
  * on a wide screen is the only open water there is.
  */
-const RAIL_WATER = 'xl:left-auto xl:w-[352px]'
+const RAIL_WATER = `xl:left-auto ${RAIL_WIDTH}`
 
 /**
  * The portfolio's water. Both tabs stand on it — the same canvas as the empty
@@ -103,6 +119,8 @@ function Sea({ ambient, children }: { ambient?: string; children: React.ReactNod
 
 interface FrameProps {
   wallets: Arm[]
+  /** Who is signed in, for the greeting. Null greets without a name. */
+  person?: { name: string; mono: boolean } | null
   portfolioState?: PortfolioState
   onRefresh?: () => void
   loading?: boolean
@@ -111,11 +129,14 @@ interface FrameProps {
   linkError?: string | null
   tab?: string
   onLink?: (() => void) | undefined
+  /** Unlinks an arm, after the confirm this view owns. Absent, the cards are read-only. */
+  onUnlink?: ((arm: Arm) => Promise<void>) | undefined
   dialog?: React.ReactNode
 }
 
 export function Frame({
   wallets,
+  person = null,
   portfolioState,
   onRefresh,
   loading = false,
@@ -123,12 +144,38 @@ export function Frame({
   linkError,
   tab = 'tokens',
   onLink,
+  onUnlink,
   dialog,
 }: FrameProps) {
   const [network, setNetwork] = useState<string | null>(null)
+  const [unlinking, setUnlinking] = useState<Arm | null>(null)
+  const [wallet, setWallet] = useState<string>('all')
+  // Read once: a greeting that flips from gm to hello mid-visit is a clock, not a greeting.
+  const [hour] = useState(() => new Date().getHours())
   const portfolio = portfolioState ? portfolioOf(portfolioState) : null
   const selectedNetwork = portfolio?.chains.some((chain) => chain.chainId === network) ? network : null
-  const selected = useMemo(() => portfolio ? selectPortfolio(portfolio, selectedNetwork) : null, [portfolio, selectedNetwork])
+  const selectedWallet = wallets.some((arm) => arm.id === wallet) ? wallet : null
+  const selected = useMemo(
+    () => (portfolio ? selectPortfolio(portfolio, selectedNetwork, selectedWallet) : null),
+    [portfolio, selectedNetwork, selectedWallet],
+  )
+  // The network's whole, for the figure beside each wallet in the picker.
+  const onNetwork = useMemo(() => (portfolio ? selectPortfolio(portfolio, selectedNetwork) : null), [portfolio, selectedNetwork])
+  const walletRefs = useMemo(() => walletRefsOf(wallets), [wallets])
+  const walletChoices = useMemo(
+    () =>
+      wallets.map((arm) => {
+        const ref = walletRefs.get(arm.id)!
+        const summary = onNetwork?.arms.find((item) => item.walletId === arm.id)
+        return {
+          id: arm.id,
+          label: ref.name,
+          ref,
+          detail: summary?.status === 'ok' ? formatMoneyFlat(summary.total, onNetwork?.currency) : undefined,
+        }
+      }),
+    [wallets, walletRefs, onNetwork],
+  )
   const missing = unreadArms(portfolio)
   const hasReading = !!portfolio?.arms.some((arm) => arm.status === 'ok')
   const money = selected && hasReading ? formatMoney(selected.total, selected.currency) : null
@@ -139,26 +186,41 @@ export function Frame({
   const balancesLoading = wallets.length > 0 && (!portfolioState || portfolioState.status === 'loading')
   const linked = wallets.length > 0
   const free = MAX_ARMS - wallets.length
-  /** The one view that carries the nudge in its own right-hand rail. */
+  /** The one view that carries a right-hand rail. */
   const tokensView = linked && tab !== 'wallets'
+  const hasDefi = (selected?.protocols.length ?? 0) > 0
+  const prompts = useMemo(() => promptsFor(hasReading ? selected : null), [hasReading, selected])
+  // The rail exists at xl. It carries the nudge only when DeFi has not taken
+  // it; the sidebar's compact nudge steps aside exactly then, and no longer.
+  const wide = useMediaQuery(RAIL_MEDIA)
+  useRailNudge(wide && tokensView && !hasDefi)
 
   return (
     <div data-portfolio className="relative flex min-h-0 flex-1 flex-col [&>*]:shrink-0">
       <PageHeader
         title="Portfolio"
         eyebrow={
-          linked
-            ? `Total balance · ${wallets.length} wallet${wallets.length > 1 ? 's' : ''}`
-            : 'Total balance'
+          <span className="flex flex-col gap-1">
+            <strong className="text-[15px] font-semibold text-[var(--ot-text)]">{greeting(person?.name, hour, person?.mono)}</strong>
+            <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              {balanceLine(wallets.length)}
+              {linked ? <WalletMarks holders={[...walletRefs.values()]} /> : null}
+            </span>
+          </span>
         }
         headline={money ? <Figure {...money} /> : loading || linked || failure
           ? <Figure whole="—" /> : <Figure whole="$0" fraction="00" />}
         detail={loading ? 'Loading wallets…' : failure && !linked ? 'Wallets unavailable' : !linked ? 'No wallets linked yet.' : balancesLoading ? 'Reading balances…' : !hasReading ? 'Balances unavailable' : (
           <span>
-            {delta?.text ?? 'No change today'}
+            {/* Green up, red down: the same pair every change figure on the page uses. */}
+            {delta ? (
+              <span className={delta.direction === 'up' ? 'text-[var(--ot-ok-text)]' : 'text-[var(--ot-block-text)]'}>{delta.text}</span>
+            ) : (
+              'No change today'
+            )}
             {selectedNetwork ? ` · ${portfolio?.chains.find((chain) => chain.chainId === selectedNetwork)?.name}` : ''}
+            {selectedWallet ? ` · ${walletRefs.get(selectedWallet)?.name}` : ''}
             {missing.length > 0 ? ' · Partial total' : ''}
-            {selected && selected.unpriced > 0 ? ` · ${selected.unpriced} unpriced` : ''}
             {portfolioState?.status === 'failed' ? ' · Last successful reading' : ''}
           </span>
         )}
@@ -208,9 +270,13 @@ export function Frame({
             tabs={[
               { value: 'tokens', label: 'Tokens' },
               { value: 'wallets', label: 'Wallets' },
-              { value: 'approvals', label: 'Approvals', disabled: true },
             ]}
-            aside={<NetworkFilter chains={portfolio?.chains ?? []} value={selectedNetwork} onChange={setNetwork} />}
+            aside={
+              <span className="flex flex-wrap items-center gap-2">
+                <WalletFilter wallets={walletChoices} value={selectedWallet ?? 'all'} onChange={setWallet} />
+                <NetworkFilter chains={portfolio?.chains ?? []} value={selectedNetwork} onChange={setNetwork} />
+              </span>
+            }
           />
 
           {tab === 'wallets' ? (
@@ -226,6 +292,7 @@ export function Frame({
                       value={known ? formatMoneyFlat(summary.total, selected?.currency) : null}
                       share={known ? `${formatShare(summary.share)} of holdings`
                         : balancesLoading ? 'Reading balance…' : 'Balance unavailable'}
+                      onUnlink={onUnlink ? () => setUnlinking(arm) : undefined}
                     />
                   )
                 })}
@@ -244,10 +311,13 @@ export function Frame({
             </Sea>
           ) : (
             <Sea ambient={RAIL_WATER}>
-              <div className="relative flex min-h-0 flex-1">
-                <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+              {/* The section is the scroller, both columns inside it, so the
+                  bar sits at the section's right edge rather than between the
+                  table and the rail, and the two scroll as one. */}
+              <div className="ot-scroll relative flex min-h-0 flex-1 overflow-y-auto overscroll-contain">
+                <div className="flex min-w-0 flex-1 flex-col">
                   {balancesLoading ? <SkeletonShelf rows={3} avatar={36} className="m-4 sm:m-[22px]" /> : hasReading && selected ? (
-                    <Holdings portfolio={selected} wallets={wallets} />
+                    <Holdings portfolio={selected} wallets={wallets} show={hasDefi ? 'wallet' : 'all'} />
                   ) : (
                     // S4's error state, not a sentence. The last line is the
                     // one that matters on a surface that moves money: naming
@@ -264,18 +334,25 @@ export function Frame({
                     />
                   )}
                 </div>
-                {/* The right-hand space. Reserved as a column of its own so the
-                    table reads left-aligned rather than adrift in the middle;
-                    the nudge is the only thing in it today. Below xl there is
-                    no room for a rail, so it stays the overlay it was — now
-                    anchored to this section rather than to the whole page. */}
-                <aside aria-label="Suggestions" className={cn(
-                  'ot-scroll absolute right-3 bottom-3 left-3 z-20 max-h-[45dvh] overflow-y-auto rounded-2xl bg-[var(--ot-card)] shadow-lg sm:left-auto sm:w-[400px]',
-                  'xl:static xl:z-auto xl:max-h-none xl:w-[352px] xl:shrink-0 xl:rounded-none xl:bg-transparent xl:pt-1 xl:shadow-none',
-                )}>
-                  <FirstIntentNudge />
-                </aside>
+                {/* The right-hand column. DeFi when there is any — the protocol
+                    cards beside the tokens, the way a portfolio app splits
+                    them — and otherwise the nudge, which is what the rail was
+                    for before. Below xl there is no room for a rail: the
+                    protocols stay in the column and the nudge is the overlay. */}
+                {hasReading && selected && hasDefi ? (
+                  <aside aria-label="DeFi positions" className={`hidden shrink-0 flex-col self-start xl:flex ${RAIL_WIDTH}`}>
+                    <Holdings portfolio={selected} wallets={wallets} show="defi" />
+                  </aside>
+                ) : (
+                  <aside aria-label="Suggestions" className={`hidden shrink-0 self-start pt-1 xl:block ${RAIL_WIDTH}`}>
+                    <IntentNudge prompts={prompts} />
+                  </aside>
+                )}
               </div>
+              {/* Outside the scroller, so it keeps its corner while the section
+                  scrolls. Present whenever the rail is not showing the card:
+                  always below xl, and at xl when DeFi has the rail. */}
+              <IntentNudgeOverlay prompts={prompts} className={hasDefi ? undefined : 'xl:hidden'} />
             </Sea>
           )}
         </>
@@ -327,9 +404,8 @@ export function Frame({
       )}
 
       {dialog}
-      {tokensView ? null : (
-        <FirstIntentNudge className="absolute right-3 bottom-3 left-3 z-20 max-h-[45dvh] overflow-y-auto rounded-2xl bg-[var(--ot-card)] shadow-lg sm:left-auto" />
-      )}
+      {onUnlink ? <UnlinkDialog arm={unlinking} onClose={() => setUnlinking(null)} onUnlink={onUnlink} /> : null}
+      {tokensView ? null : <IntentNudgeOverlay prompts={prompts} />}
     </div>
   )
 }

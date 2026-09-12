@@ -81,7 +81,7 @@ describe('portfolio network selection', () => {
     expect(portfolio.arms[0]?.total).toBe(180)
   })
 
-  it('counts what has no price and denies a partly priced card a share', () => {
+  it('counts what has no price, and a partly priced card still gets its share', () => {
     const unpricedToken = { ...row('eip155:1', [0]), assetId: 'eip155:1/erc20:dust', holdings: [{ walletId: 'wallet-0', amount: '1', value: null }] }
     const partial: Portfolio = {
       ...portfolio,
@@ -94,7 +94,8 @@ describe('portfolio network selection', () => {
     const selected = selectPortfolio(partial, null)
     expect(selected.wallet.unpriced).toBe(1)
     expect(selected.unpriced).toBe(2)
-    expect(selected.protocols[0]).toMatchObject({ id: 'fluid', unpriced: 1, share: 0 })
+    expect(selected.protocols[0]).toMatchObject({ id: 'fluid', unpriced: 1 })
+    expect(selected.protocols[0]!.share).toBeGreaterThan(0)
     expect(selected.protocols[1]?.share).toBeGreaterThan(0)
     // Narrowed to a network with no unpriced holding, the count goes with it.
     expect(selectPortfolio(partial, 'eip155:1').unpriced).toBe(1)
@@ -118,5 +119,33 @@ describe('portfolio network selection', () => {
     expect(empty.protocols).toEqual([])
     expect(empty.total).toBe(0)
     expect(empty.change1d).toBe(0)
+  })
+})
+
+describe('portfolio wallet selection', () => {
+  it('keeps one wallet\u2019s part of every row, and re-derives the whole from it', () => {
+    const mine = selectPortfolio(portfolio, null, 'wallet-0')
+    // wallet-0: 100 of the Ethereum token, 0 of the Base one (a zero-value holding still counts), and Fluid net 80.
+    expect(mine.assets.map((row) => [row.chainId, row.value, row.amount])).toEqual([
+      ['eip155:1', 100, '1000000000000000000'],
+      ['eip155:8453', 0, '1000000000000000000'],
+    ])
+    expect(mine.protocols.map((app) => app.id)).toEqual(['fluid'])
+    expect(mine.total).toBe(180)
+    expect(mine.wallet.value).toBe(100)
+  })
+
+  it('divides a row\u2019s day change by the wallet\u2019s share of the amount', () => {
+    const theirs = selectPortfolio(portfolio, null, 'wallet-1')
+    // wallet-1 holds 1e18 of the 2e18+1 in the Ethereum row: half of its +5.
+    expect(theirs.assets[0]!.change1d).toBeCloseTo(2.5, 6)
+    expect(theirs.protocols.map((app) => app.id)).toEqual(['morpho'])
+  })
+
+  it('composes with the network filter', () => {
+    const slice = selectPortfolio(portfolio, 'eip155:8453', 'wallet-1')
+    expect(slice.assets).toEqual([])
+    expect(slice.protocols).toEqual([])
+    expect(slice.total).toBe(0)
   })
 })
