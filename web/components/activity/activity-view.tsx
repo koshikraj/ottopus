@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { usePrivyAvailable } from '@/components/auth'
 import { Otto } from '@/components/brand'
+import { BubbleField } from '@/components/motion'
 import { walletRefsOf } from '@/components/portfolio/wallet-marks'
 import { Button, Callout, EmptyState, ErrorState } from '@/components/ui'
 import { armsOf, useWallets } from '@/components/wallets'
@@ -118,11 +119,11 @@ function ConnectedActivity() {
   )
 }
 
-/** On the page's own water, so no canvas of its own. */
 function Empty({ linked }: { linked: boolean }) {
   return (
     <div className="px-5 py-6 sm:px-[26px]">
-      <div className="relative">
+      <div className="ot-canvas relative overflow-hidden rounded-2xl">
+        <BubbleField pattern="calm" />
         <EmptyState
           className="relative"
           title={linked ? 'Still water' : 'Nothing to read yet'}
