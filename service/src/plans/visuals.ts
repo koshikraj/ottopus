@@ -71,6 +71,7 @@ export async function visualsFor(
   arms: readonly Arm[],
   portfolio: Portfolio | null,
   tokens: TokenRegistry | null = null,
+  chainIcon: ((chainId: string) => string | null) | null = null,
 ): Promise<Visuals> {
   const visuals: Visuals = { assets: {}, chains: {}, wallets: {} }
 
@@ -109,7 +110,9 @@ export async function visualsFor(
     if (!chain && !info) continue
     visuals.chains[chainId] = {
       name: chain?.name ?? info?.name ?? chainId,
-      iconUrl: chain?.iconUrl ?? null,
+      // The portfolio only names chains with a balance on them; the
+      // provider's chain list names them all.
+      iconUrl: chain?.iconUrl ?? chainIcon?.(chainId) ?? null,
       nativeAssetId: nativeAssetIdOf(chainId),
       nativeSymbol: info?.nativeCurrency.symbol ?? 'units',
       nativeDecimals: info?.nativeCurrency.decimals ?? 18,

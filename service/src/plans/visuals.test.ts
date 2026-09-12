@@ -75,9 +75,11 @@ describe('a bridge', () => {
       ...plan,
       intent: { kind: 'bridge', from: 'eip155:8453/slip44:60', to: 'eip155:42161/slip44:60', amountIn: '1', slippageBps: 50 },
     } as unknown as Plan
-    const visuals = await visualsFor(bridge, arms, portfolio)
+    const visuals = await visualsFor(bridge, arms, portfolio, null, (chainId) => (chainId === 'eip155:42161' ? 'https://cdn/arb.png' : null))
     expect(Object.keys(visuals.chains).sort()).toEqual(['eip155:42161', 'eip155:8453'])
-    expect(visuals.chains['eip155:42161']).toMatchObject({ name: 'Arbitrum One', nativeSymbol: 'ETH' })
+    // The portfolio has nothing on Arbitrum, so the mark comes from the provider's chain list.
+    expect(visuals.chains['eip155:42161']).toMatchObject({ name: 'Arbitrum One', nativeSymbol: 'ETH', iconUrl: 'https://cdn/arb.png' })
+    expect(visuals.chains['eip155:8453']?.iconUrl).toBe('https://cdn/base.png')
   })
 })
 
