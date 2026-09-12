@@ -173,7 +173,6 @@ export function Frame({
             {delta?.text ?? 'No change today'}
             {selectedNetwork ? ` · ${portfolio?.chains.find((chain) => chain.chainId === selectedNetwork)?.name}` : ''}
             {missing.length > 0 ? ' · Partial total' : ''}
-            {selected && selected.unpriced > 0 ? ` · ${selected.unpriced} unpriced` : ''}
             {portfolioState?.status === 'failed' ? ' · Last successful reading' : ''}
           </span>
         )}
