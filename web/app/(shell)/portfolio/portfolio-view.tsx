@@ -297,8 +297,10 @@ export function Frame({
                   </aside>
                 )}
               </div>
-              {/* Outside the scroller, so it keeps its corner while the section scrolls. */}
-              <IntentNudgeOverlay prompts={prompts} className="xl:hidden" />
+              {/* Outside the scroller, so it keeps its corner while the section
+                  scrolls. Present whenever the rail is not showing the card:
+                  always below xl, and at xl when DeFi has the rail. */}
+              <IntentNudgeOverlay prompts={prompts} className={hasDefi ? undefined : 'xl:hidden'} />
             </Sea>
           )}
         </>
