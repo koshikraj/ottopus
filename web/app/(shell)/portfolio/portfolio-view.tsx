@@ -269,7 +269,6 @@ export function Frame({
             tabs={[
               { value: 'tokens', label: 'Tokens' },
               { value: 'wallets', label: 'Wallets' },
-              { value: 'approvals', label: 'Approvals', disabled: true },
             ]}
             aside={
               <span className="flex flex-wrap items-center gap-2">
