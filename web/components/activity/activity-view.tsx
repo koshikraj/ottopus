@@ -86,8 +86,16 @@ function ConnectedActivity() {
   return (
     <div className="flex flex-col gap-4 px-5 py-6 sm:px-[26px]">
       {unread.length > 0 ? (
-        <Callout severity="caution" title={unread.length === 1 ? 'One wallet could not be read' : `${unread.length} wallets could not be read`}>
-          {unread.map((arm) => walletRefs.get(arm.walletId)?.name ?? arm.address).join(', ')} — their history is missing from this list. Try again in a moment.
+        <Callout
+          severity="caution"
+          title={unread.length === 1 ? 'One wallet could not be read' : `${unread.length} wallets could not be read`}
+          actions={
+            <Button variant="secondary" size="sm" onClick={refresh}>
+              Read again
+            </Button>
+          }
+        >
+          {unread.map((arm) => walletRefs.get(arm.walletId)?.name ?? arm.address).join(', ')} — left out of this list until it is read again from the top, so nothing lands out of order.
         </Callout>
       ) : null}
       <ActivityTable
