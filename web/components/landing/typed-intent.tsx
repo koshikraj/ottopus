@@ -11,7 +11,11 @@ import { useMediaQuery } from '@/lib/use-media-query'
  */
 export const TYPED_INTENTS: readonly string[] = [
   'Swap 500 USDC for ETH',
+  'Buy $100 of Tesla stock on chain',
+  'Get me the cheapest $1,000 loan on Base',
   'Send 0.1 ETH to koshik.eth',
+  'Move my idle USDC to the best yield',
+  'Revoke every unlimited approval I have',
   'Bridge 50 USDC to Arbitrum',
 ]
 
