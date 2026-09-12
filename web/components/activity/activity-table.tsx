@@ -200,9 +200,9 @@ function Row({ row, wallet, address, chainIcon, open, onToggle }: { row: Activit
         <Legs transfers={out} approvals={row.kind === 'approve' || row.kind === 'revoke' ? row.approvals : []} sign="−" />
         <Legs transfers={inbound} approvals={[]} sign="+" />
 
-        <span className="col-span-2 flex items-baseline gap-1.5 text-[12px] text-[var(--ot-text-3)] sm:col-span-1 sm:flex-col sm:items-end sm:gap-0.5 sm:text-right">
-          <span className="text-[13px] text-[var(--ot-text-2)] tabular-nums">{mined.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</span>
-          {row.fee?.value !== null && row.fee?.value !== undefined ? <span className="tabular-nums">{feeWords(row.fee.value)} fee</span> : null}
+        {/* The fee stays in the opened row; the column is the time alone. */}
+        <span className="col-span-2 text-[13px] text-[var(--ot-text-2)] tabular-nums sm:col-span-1 sm:text-right">
+          {mined.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
         </span>
       </button>
       {open ? <Detail row={row} address={address} /> : null}
