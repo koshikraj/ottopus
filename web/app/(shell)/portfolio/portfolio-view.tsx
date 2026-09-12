@@ -84,12 +84,13 @@ function ConnectedPortfolio() {
 }
 
 /**
- * The rail: a third of the section, within reason. A strict third is 339px on
- * a 1280 screen and 552px on a 1920 one — the first is tighter than a card
- * wants, the second is half the rail wasted. Only at xl: between lg and xl the
- * column is about 760px, and a third of that holds nothing well.
+ * The rail: two fifths of the section, within reason. A protocol card wants
+ * more room than a nudge does, and the token table has columns to spare —
+ * so 400px at the least, 520px at the most, and 40% between. Only at xl:
+ * between lg and xl the column is about 760px, and a rail that size in it
+ * would leave the table nothing.
  */
-const RAIL_WIDTH = 'xl:w-[clamp(360px,33%,440px)]'
+const RAIL_WIDTH = 'xl:w-[clamp(400px,40%,520px)]'
 const RAIL_MEDIA = '(min-width: 1280px)'
 
 /**
