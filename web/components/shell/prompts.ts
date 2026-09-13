@@ -1,12 +1,15 @@
 import type { AssetRow, ChainRow } from '@/lib/api'
 
 /**
- * What the nudge asks a person to try. The design's three, then two for the
- * custom tier — the same shapes the demo runs. Concrete on purpose: "try
- * something" is not a prompt, "swap 20 USDC for ETH on Base" is.
+ * What the nudge asks a person to try. The design's three, a stock on chain,
+ * then two for the custom tier — the same shapes the demo runs. Concrete on
+ * purpose: "try something" is not a prompt, "swap 20 USDC for ETH on Base"
+ * is, and "buy me NVIDIA" says what an agent with every wallet can do that a
+ * swap box cannot: find the token, pick the chain, and route to it.
  */
 export const INTENT_PROMPTS: readonly string[] = [
   'Swap 20 USDC for ETH on Base',
+  'Buy me NVIDIA token using 10 USDC',
   'Move my idle USDC to the cheapest chain',
   'Show me every unlimited approval I have',
   'Add liquidity to the USDC/ETH pool on Base',
